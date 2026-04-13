@@ -164,7 +164,7 @@ with tab1:
         st.download_button("Download Output 2", generate_output2_excel(out2, report_datetime), f"IHIP Defaulter List of S, P & L Form of _{report_datetime}.xlsx")
 
 # ----------------------------------------------------------------
-# TAB 2: CONSOLIDATED REPORTING SUMMARY (Download Fix)
+# TAB 2: CONSOLIDATED REPORTING SUMMARY (Formatting Fix)
 # ----------------------------------------------------------------
 with tab2:
     st.title("Reporting Summary Status")
@@ -197,21 +197,14 @@ with tab2:
         if not (ward_col and total_col and perc_col and never_col):
             return pd.DataFrame()
             
-        df = df[[ward_col, total_col, perc_col, never_col]].copy()
+        df = df[[ward_col, total_col, perc_col]].copy()
         df.rename(columns={
             ward_col: "ward", 
-            total_col: "Total Reporting Units",
-            perc_col: "% Of Average Reporting Units",
-            never_col: "Never Reported Reporting Units"
+            total_col: "Total Units",
+            perc_col: "% Reporting"
         }, inplace=True)
         
-        numeric_cols = [
-            "Total Reporting Units", 
-            "% Of Average Reporting Units", 
-            "Never Reported Reporting Units"
-        ]
-        
-        for col in numeric_cols:
+        for col in ["Total Units", "% Reporting"]:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
         df["ward"] = df["ward"].astype(str).str.strip()
@@ -223,56 +216,59 @@ with tab2:
         dl = process_summary_file(sum_l)
         
         if not ds.empty and not dp.empty and not dl.empty:
+            # Merging
             master = pd.merge(ds, dp, on="ward", how="outer", suffixes=("_S", "_P"))
             master = pd.merge(master, dl, on="ward", how="outer").fillna(0)
-            
-            master.rename(columns={
-                "Total Reporting Units": "Total Reporting Units_L",
-                "% Of Average Reporting Units": "% Of Average Reporting Units_L",
-                "Never Reported Reporting Units": "Never Reported Reporting Units_L"
-            }, inplace=True)
+            master.rename(columns={"Total Units": "Total Units_L", "% Reporting": "% Reporting_L"}, inplace=True)
             
             master = master.sort_values("ward")
+            master["Blank1"] = ""; master["Blank2"] = ""
             
-            total_row = {"ward": "Total"}
-            for sfx in ["_S", "_P", "_L"]:
-                total_row[f"Total Reporting Units{sfx}"] = master[f"Total Reporting Units{sfx}"].sum()
-                total_row[f"% Of Average Reporting Units{sfx}"] = master[f"% Of Average Reporting Units{sfx}"].mean()
-                total_row[f"Never Reported Reporting Units{sfx}"] = master[f"Never Reported Reporting Units{sfx}"].sum()
-            
-            final_df_sum = pd.concat([master, pd.DataFrame([total_row])], ignore_index=True)
-            final_df_sum["Blank1"] = ""
-            final_df_sum["Blank2"] = ""
-            
+            # Column Order
             cols_order = [
-                "ward",
-                "Total Reporting Units_S", "% Of Average Reporting Units_S", "Never Reported Reporting Units_S", "Blank1",
-                "Total Reporting Units_P", "% Of Average Reporting Units_P", "Never Reported Reporting Units_P", "Blank2",
-                "Total Reporting Units_L", "% Of Average Reporting Units_L", "Never Reported Reporting Units_L"
+                "ward", "Total Units_S", "% Reporting_S", "Blank1",
+                "Total Units_P", "% Reporting_P", "Blank2",
+                "Total Units_L", "% Reporting_L"
             ]
-            
-            export_df = final_df_sum[cols_order]
+            export_df = master[cols_order]
+
             st.subheader("Summary Preview")
             st.dataframe(export_df, use_container_width=True)
             
-            # --- DOWNLOAD FIX START ---
+            # --- EXCEL FORMATTING AS PER IMAGE ---
             sum_buf = BytesIO()
-            # engine as xlsxwriter
             with pd.ExcelWriter(sum_buf, engine='xlsxwriter') as writer:
-                export_df.to_excel(writer, index=False, sheet_name='Summary')
+                # Start data from row 4 to leave space for headers
+                export_df.to_excel(writer, index=False, sheet_name='Summary', startrow=3, header=False)
+                
                 workbook = writer.book
                 worksheet = writer.sheets['Summary']
-                header_fmt = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
-                for col_num, value in enumerate(export_df.columns.values):
-                    worksheet.write(0, col_num, value, header_fmt)
-            
-            # Use sum_buf.getvalue() directly in the button
+                
+                # Formats
+                bold_center = workbook.add_format({'bold': True, 'align': 'center', 'border': 1})
+                header_fmt = workbook.add_format({'bold': True, 'align': 'center', 'bg_color': '#F2F2F2', 'border': 1})
+
+                # Row 1: Merge for "Non reporting units"
+                worksheet.merge_range('B1:C1', 'Non reporting units', bold_center)
+                worksheet.merge_range('F1:G1', 'Non reporting units', bold_center)
+                worksheet.merge_range('I1:J1', 'Non reporting units', bold_center)
+
+                # Row 2: Merge for Form Types
+                worksheet.merge_range('B2:C2', 'S-Form', bold_center)
+                worksheet.merge_range('F2:G2', 'P-Form', bold_center)
+                worksheet.merge_range('I2:J2', 'L-Form', bold_center)
+
+                # Row 3: Sub-headers
+                sub_headers = ['ward', 'Total Units', '% Reporting', '', 'Total Units', '% Reporting', '', 'Total Units', '% Reporting']
+                for col_num, header in enumerate(sub_headers):
+                    if header:
+                        worksheet.write(2, col_num, header, header_fmt)
+
             st.download_button(
-                label="Download Reporting Summary Excel",
+                label="Download Summary Excel",
                 data=sum_buf.getvalue(),
                 file_name="Reporting_Summary.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-            # --- DOWNLOAD FIX END ---
     else:
-        st.info("Please upload all three summary files to enable download.")
+        st.info("Please upload all files to see the Preview and Download button.")
