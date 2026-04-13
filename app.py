@@ -2,67 +2,38 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
-# =========================================================
-# PAGE
-# =========================================================
-
-st.set_page_config(page_title="IHIP Tool", layout="wide")
+st.set_page_config(page_title="IHIP Defaulter Tool", layout="wide")
 st.title("Daily IHIP Defaulter Analysis")
 
-# =========================================================
-# SAFE EXCEL READER (FIXED)
-# =========================================================
-
-def safe_read_excel(file):
-    try:
-        return pd.read_excel(file, engine="openpyxl")
-    except Exception:
-        try:
-            return pd.read_excel(file, engine="xlrd")
-        except Exception:
-            return pd.read_excel(file)
-
-# =========================================================
-# OUTPUT 1/2 INPUTS
-# =========================================================
-
+# ---------------- Upload ----------------
 col1, col2, col3 = st.columns(3)
 
-s_file = col1.file_uploader("S Form (O1/O2)", type=["xlsx"])
-p_file = col2.file_uploader("P Form (O1/O2)", type=["xlsx"])
-l_file = col3.file_uploader("L Form (O1/O2)", type=["xlsx"])
+s_file = col1.file_uploader("S-Form", type=["xlsx"])
+p_file = col2.file_uploader("P-Form", type=["xlsx"])
+l_file = col3.file_uploader("L-Form", type=["xlsx"])
 
 st.markdown("---")
 
-contact_file = st.file_uploader("Contact File", type=["xlsx"])
-staff_input = st.text_input("Staff Names")
+contact_file = st.file_uploader("Upload Contact File", type=["xlsx"])
+staff_input = st.text_input("Enter Staff Names (comma separated)")
 
-report_date = st.text_input("Report Date", "13-04-2026")
-report_datetime = st.text_input("Report DateTime", "")
-
-# =========================================================
-# OUTPUT 3 INPUTS (SEPARATE)
-# =========================================================
-
-st.subheader("Output 3 - Upload Files")
-
-col4, col5, col6 = st.columns(3)
-
-s_file_3 = col4.file_uploader("S Form (O3)", type=["xlsx"])
-p_file_3 = col5.file_uploader("P Form (O3)", type=["xlsx"])
-l_file_3 = col6.file_uploader("L Form (O3)", type=["xlsx"])
-
-output3_date = st.text_input("Output 3 Date", "13-04-2026")
+# Manual Inputs
+report_date = st.text_input("Enter Date (DD-MM-YYYY)", "13-04-2026")
+report_datetime = st.text_input("Enter Full Date-Time (e.g. monday 13-04-2026 till 04.04pm)")
 
 st.markdown("---")
 
-# =========================================================
-# PROCESS O1/O2
-# =========================================================
-
+# ---------------- PROCESS ----------------
 def process_file(file, form):
+    raw = pd.read_excel(file, header=None)
 
-    df = safe_read_excel(file)
+    header_row = 0
+    for i, row in raw.iterrows():
+        if "facility name" in str(row).lower():
+            header_row = i
+            break
+
+    df = pd.read_excel(file, skiprows=header_row)
     df.columns = [str(c).strip() for c in df.columns]
 
     def find_col(k):
@@ -71,19 +42,32 @@ def process_file(file, form):
     name = find_col("facility name")
     subtype = find_col("facility sub-type")
     report = find_col("number of times reported")
-    ward = find_col("ward") or find_col("zone")
+    ward = next((c for c in df.columns if "ward" in c.lower() or "zone" in c.lower()), None)
 
-    if not name:
+    if not (name and subtype and report):
         return pd.DataFrame()
 
-    df["WARD"] = df[ward] if ward else "Not Mentioned"
+    df[report] = pd.to_numeric(df[report], errors="coerce")
+    df = df[df[report].fillna(0) == 0].copy()
 
-    df["Category"] = "OTHER"
-    if subtype:
-        df["Category"] = df[subtype]
+    category_map = {
+        "Dispensary": "PUBLIC",
+        "Government Medical College Hospital": "PUBLIC",
+        "IGSL Satellite Laboratory": "PUBLIC",
+        "Infectious Disease Hospital": "PUBLIC",
+        "Municipal Hospital": "PUBLIC",
+        "Other Government Hospitals": "PUBLIC",
+        "Urban Primary Health Centre": "PUBLIC",
+        "Health Post": "PUBLIC",
+        "Health Sub Centre": "PUBLIC",
+        "Private Hospital": "PRIVATE",
+        "Private Laboratory": "PRIVATE"
+    }
+
+    df["Category"] = df[subtype].map(category_map).fillna("OTHER")
 
     out = pd.DataFrame()
-    out["WARD"] = df["WARD"]
+    out["WARD"] = df[ward].fillna("Not Mentioned") if ward else "Not Mentioned"
     out["Facility Name"] = df[name]
     out["Form Type"] = form
     out["Category"] = df["Category"]
@@ -91,103 +75,137 @@ def process_file(file, form):
 
     return out
 
-# =========================================================
-# OUTPUT 1 & 2
-# =========================================================
-
+# ---------------- MAIN ----------------
 dfs = []
 
 if s_file:
-    dfs.append(process_file(s_file, "S"))
+    dfs.append(process_file(s_file, "S FORM"))
 if p_file:
-    dfs.append(process_file(p_file, "P"))
+    dfs.append(process_file(p_file, "P FORM"))
 if l_file:
-    dfs.append(process_file(l_file, "L"))
+    dfs.append(process_file(l_file, "L FORM"))
 
 if dfs:
-
     final_df = pd.concat(dfs, ignore_index=True)
 
-    if "WARD" not in final_df.columns:
-        final_df["WARD"] = "Not Mentioned"
-
+    # 🔥 SORT (Not Mentioned last)
     final_df["WARD"] = final_df["WARD"].astype(str)
 
+    final_df["ward_sort"] = final_df["WARD"].apply(
+        lambda x: "ZZZ" if x.strip().lower() == "not mentioned" else x
+    )
+
+    final_df = final_df.sort_values(["ward_sort", "Facility Name"]).drop(columns=["ward_sort"])
+
+    # ---------------- OUTPUT 1 ----------------
     out1 = final_df.copy()
-    out1.insert(0, "Sr No", range(1, len(out1) + 1))
+    out1.insert(0, "Sr No", range(1, len(out1)+1))
 
     st.subheader("Output 1")
     st.dataframe(out1, use_container_width=True)
 
-    # OUTPUT 2 (simple stable)
-    out2 = final_df.copy()
-    out2.insert(0, "Sr No", range(1, len(out2) + 1))
-    out2["Contact"] = ""
-    out2["Mobile"] = ""
-    out2["Assigned Staff"] = ""
-    out2["REMARK"] = ""
+    # ---------------- OUTPUT 2 ----------------
+    merged = final_df.copy()
+    merged["key"] = merged["Facility Name"].astype(str).str.strip().str.lower()
+
+    if contact_file:
+        cdf = pd.read_excel(contact_file)
+        cdf.columns = [str(c).strip() for c in cdf.columns]
+
+        name_c = next((c for c in cdf.columns if "facility" in c.lower()), None)
+        person = next((c for c in cdf.columns if "contact" in c.lower()), None)
+        mobile = next((c for c in cdf.columns if "mobile" in c.lower()), None)
+
+        if name_c and person and mobile:
+            cdf["key"] = cdf[name_c].astype(str).str.strip().str.lower()
+
+            merged = merged.merge(
+                cdf[["key", person, mobile]],
+                on="key",
+                how="left"
+            )
+
+            merged.rename(columns={
+                person: "Contact Person Name",
+                mobile: "Mobile Number"
+            }, inplace=True)
+
+    for col in ["Contact Person Name", "Mobile Number"]:
+        if col not in merged.columns:
+            merged[col] = ""
+
+    merged["Contact Person Name"] = merged["Contact Person Name"].astype(str).replace(["nan",""], "Not Available")
+    merged["Mobile Number"] = merged["Mobile Number"].astype(str).replace(["nan",""], "Not Available")
+
+    # 🔥 ASSIGNED STAFF
+    if staff_input:
+        staff = [s.strip() for s in staff_input.split(",") if s.strip()]
+        n = len(merged)
+        k = len(staff)
+
+        assigned = []
+        if k > 0:
+            base = n // k
+            extra = n % k
+            for i, s in enumerate(staff):
+                count = base
+                if i == k - 1:
+                    count += extra
+                assigned.extend([s] * count)
+
+        merged["Assigned Staff"] = assigned
+    else:
+        merged["Assigned Staff"] = ""
+
+    merged.drop(columns=["key"], inplace=True)
+
+    out2 = merged.copy()
+    out2.insert(0, "Sr No", range(1, len(out2)+1))
 
     st.subheader("Output 2")
     st.dataframe(out2, use_container_width=True)
 
-# =========================================================
-# OUTPUT 3 (FIXED + DOWNLOAD ADDED)
-# =========================================================
-
-st.subheader("Output 3 (Ward Comparison)")
-
-def process_simple(file, prefix):
-    df = safe_read_excel(file)
-    df.columns = [str(c).strip() for c in df.columns]
-
-    ward_col = next((c for c in df.columns if "ward" in c.lower()), None)
-
-    if not ward_col:
-        return pd.DataFrame()
-
-    temp = df[[ward_col]].copy()
-    temp.columns = [f"{prefix}_Ward"]
-    temp[f"{prefix}_Ward"] = temp[f"{prefix}_Ward"].fillna("Not Mentioned")
-
-    return temp.reset_index(drop=True)
-
-if s_file_3 and p_file_3 and l_file_3:
-
-    s_df = process_simple(s_file_3, "S")
-    p_df = process_simple(p_file_3, "P")
-    l_df = process_simple(l_file_3, "L")
-
-    max_len = max(len(s_df), len(p_df), len(l_df))
-
-    s_df = s_df.reindex(range(max_len)).fillna("")
-    p_df = p_df.reindex(range(max_len)).fillna("")
-    l_df = l_df.reindex(range(max_len)).fillna("")
-
-    blank1 = pd.DataFrame([""] * max_len, columns=[" "])
-    blank2 = pd.DataFrame([""] * max_len, columns=["  "])
-
-    output3 = pd.concat([s_df, blank1, p_df, blank2, l_df], axis=1)
-
-    output3.insert(0, "Sr No", range(1, len(output3) + 1))
-
-    st.dataframe(output3, use_container_width=True)
-
-    # ================= DOWNLOAD =================
-
-    def excel_o3(df):
+    # ---------------- EXCEL EXPORT ----------------
+    def generate_output1_excel(df):
         output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, startrow=2)
-            ws = writer.sheets["Sheet1"]
-            ws["A1"] = "Ward Wise Comparison"
-            ws["A2"] = output3_date
+            ws = writer.sheets['Sheet1']
+
+            ws.merge_cells('A1:F1')
+            ws['A1'] = "IHIP Defaulter"
+
+            ws.merge_cells('A2:F2')
+            ws['A2'] = report_date
+
         return output.getvalue()
 
+    def generate_output2_excel(df):
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, startrow=2)
+            ws = writer.sheets['Sheet1']
+
+            ws.merge_cells('A1:I1')
+            ws['A1'] = "IHIP not reporting units"
+
+            ws.merge_cells('A2:I2')
+            ws['A2'] = report_datetime
+
+        return output.getvalue()
+
+    # DOWNLOAD BUTTONS
     st.download_button(
-        "Download Output 3 Excel",
-        excel_o3(output3),
-        "output3.xlsx"
+        "Download Output 1 Excel",
+        generate_output1_excel(out1),
+        "output1.xlsx"
+    )
+
+    st.download_button(
+        "Download Output 2 Excel",
+        generate_output2_excel(out2),
+        "output2.xlsx"
     )
 
 else:
-    st.info("Upload S, P, L files for Output 3")
+    st.info("Upload files to proceed")
