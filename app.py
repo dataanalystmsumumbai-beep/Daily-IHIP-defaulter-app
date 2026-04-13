@@ -32,7 +32,8 @@ if uploaded_file is not None:
             if ward_col in defaulters.columns:
                 defaulters = defaulters.rename(columns={ward_col: 'Ward'})
             
-            # 2. Change Facility Type logic: 'Private' if it contains Private, else 'Public'
+            # 2. Advanced logic for Facility Type: 
+            # If "Private" exists in the name, set as 'Private', else 'Public'
             if type_col in defaulters.columns:
                 defaulters[type_col] = defaulters[type_col].apply(
                     lambda x: 'Private' if 'private' in str(x).lower() else 'Public'
@@ -42,13 +43,14 @@ if uploaded_file is not None:
 
             st.warning(f"Total Defaulters Found: {len(defaulters)}")
             
-            # Final columns to show
+            # Final columns to show as per your request
             final_display_cols = ['Ward', name_col, type_col]
             
-            # Filter only those columns that actually exist now
+            # Filter only those columns that actually exist
             show_cols = [c for c in final_display_cols if c in defaulters.columns]
             
             if not defaulters.empty:
+                # Displaying the table
                 st.table(defaulters[show_cols])
                 
                 # Download Option
