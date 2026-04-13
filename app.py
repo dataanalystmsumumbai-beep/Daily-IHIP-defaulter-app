@@ -82,8 +82,12 @@ if l_file:
 if dfs:
     final_df = pd.concat(dfs, ignore_index=True)
 
+    # SORT BY WARD
+    final_df["WARD"] = final_df["WARD"].astype(str)
+    final_df = final_df.sort_values(["WARD", "Facility Name"])
+
     # ---------------- OUTPUT 1 ----------------
-    out1 = final_df.copy()
+    out1 = final_df[["WARD","Facility Name","Form Type","Category","REMARK"]]
     out1.insert(0, "Sr No", range(1, len(out1)+1))
 
     st.subheader("Output 1: Defaulter List")
@@ -95,7 +99,7 @@ if dfs:
     # ---------------- OUTPUT 2 ----------------
     merged = final_df.copy()
 
-    # CLEAN MATCH PREP
+    # CLEAN MATCH KEY
     merged["key"] = merged["Facility Name"].astype(str).str.strip().str.lower()
 
     if contact_file:
@@ -128,7 +132,7 @@ if dfs:
     merged["Contact Person Name"] = merged["Contact Person Name"].astype(str).replace(["nan",""], "Not Available")
     merged["Mobile Number"] = merged["Mobile Number"].astype(str).replace(["nan",""], "Not Available")
 
-    # ---------------- ASSIGNED STAFF (CORRECT BLOCK) ----------------
+    # -------- ASSIGNED STAFF (BLOCK LOGIC) --------
     if staff_input:
         staff = [s.strip() for s in staff_input.split(",") if s.strip()]
         n = len(merged)
@@ -150,14 +154,11 @@ if dfs:
     else:
         merged["Assigned Staff"] = ""
 
-    # remove helper column
     merged.drop(columns=["key"], inplace=True)
 
-    # final order
-    cols = list(final_df.columns) + [
-        "Contact Person Name",
-        "Mobile Number",
-        "Assigned Staff"
+    cols = [
+        "WARD","Facility Name","Form Type","Category","REMARK",
+        "Contact Person Name","Mobile Number","Assigned Staff"
     ]
 
     for c in cols:
