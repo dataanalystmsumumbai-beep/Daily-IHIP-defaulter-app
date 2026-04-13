@@ -6,7 +6,7 @@ import datetime
 st.set_page_config(page_title="IHIP Defaulter Tool", layout="wide")
 st.title("Daily IHIP Defaulter Analysis")
 
-# ---------------- Upload ----------------
+# ---------------- UPLOAD ----------------
 col1, col2, col3 = st.columns(3)
 
 s_file = col1.file_uploader("S-Form", type=["xlsx"])
@@ -24,7 +24,7 @@ report_time = st.text_input("Enter Time Only (e.g. 04.05pm)")
 
 st.markdown("---")
 
-# ---------------- DAY + DATETIME BUILD ----------------
+# ---------------- AUTO DAY + DATETIME ----------------
 day_name = ""
 try:
     day_name = datetime.datetime.strptime(report_date, "%d-%m-%Y").strftime("%A")
@@ -199,9 +199,11 @@ if dfs:
 
             ws.merge_cells('A2:I2')
             ws['A2'] = report_datetime
-# ---------------- MOBILE FORMAT FIX ----------------
-for row in range(4, ws.max_row + 1):
-    ws[f'F{row}'].number_format = '@'
+
+            # ---------------- MOBILE FORMAT FIX ----------------
+            for row in range(4, ws.max_row + 1):
+                ws[f'G{row}'].number_format = '@'
+
         return output.getvalue()
 
     # ---------------- DOWNLOAD ----------------
