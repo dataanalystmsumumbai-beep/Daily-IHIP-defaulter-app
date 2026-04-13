@@ -25,11 +25,12 @@ if file is not None:
             # Filtering for 0 reporting
             defaulters = df[df[target_col] == 0].copy()
             
-            # --- IMPROVED LOGIC FOR PRIVATE vs PUBLIC ---
+            # --- CUSTOM LOGIC BASED ON YOUR TABLE ---
             def categorize_facility(val):
-                text = str(val).lower().strip()
-                # जर 'private' हा शब्द कुठेही सापडला तर तो 'Private'
-                if 'private' in text:
+                text = str(val).strip()
+                # जर 'Private Hospital' किंवा 'Private Laboratory' असेल तरच 'Private'
+                private_types = ['Private Hospital', 'Private Laboratory']
+                if text in private_types:
                     return 'Private'
                 return 'Public'
 
@@ -39,7 +40,7 @@ if file is not None:
             total_private = len(defaulters[defaulters[type_col] == 'Private'])
             total_public = len(defaulters[defaulters[type_col] == 'Public'])
 
-            # Displaying Summary in a bright box
+            # Summary Display
             st.success(f"📍 Summary: Total Private Defaulters: **{total_private}** | Total Public Defaulters: **{total_public}**")
 
             # Rename Ward Column to 'Ward'
@@ -52,7 +53,7 @@ if file is not None:
 
             if not defaulters.empty:
                 st.subheader("List of Defaulter Facilities")
-                # Showing the table without row numbers (index)
+                # Display table
                 st.dataframe(defaulters[available_cols], use_container_width=True, hide_index=True)
                 
                 # Download Button
@@ -62,8 +63,7 @@ if file is not None:
                 st.balloons()
                 st.success("Great! No defaulters found today.")
         else:
-            st.error("Error: Could not find 'Number of times Reported' or 'Facility Type' columns.")
-            st.write("Columns found in your file:", list(df.columns))
+            st.error("Error: Required columns not found. Please check file headers.")
             
     except Exception as e:
         st.error(f"Error processing file: {e}")
