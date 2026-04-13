@@ -120,7 +120,7 @@ if l_file:
     form_counts["L FORM"] = count_l
 
 
-# 📊 Form-wise Defaulter Category Count
+# 📊 Category Count
 if form_counts:
     st.markdown("## 📊 Form-wise Defaulter Category Count")
 
@@ -142,7 +142,7 @@ if dfs:
     csv = final_df.to_csv(index=False).encode('utf-8')
     st.download_button("Download CSV", csv, "combined_defaulters.csv", "text/csv")
 
-    # 🔥 Output 2
+    # 🔥 Output 2 (Safe version)
     if contact_file:
         contact_df = pd.read_excel(contact_file)
         contact_df.columns = [str(c).strip() for c in contact_df.columns]
@@ -167,49 +167,54 @@ if dfs:
                 mobile_col: "Mobile Number"
             }, inplace=True)
 
-            # ✅ FIXED Missing Values Handling
-            merged["Contact Person Name"] = merged["Contact Person Name"].fillna("").astype(str)
-            merged["Mobile Number"] = merged["Mobile Number"].fillna("").astype(str)
+        else:
+            merged = final_df.copy()
+            merged["Contact Person Name"] = ""
+            merged["Mobile Number"] = ""
 
-            merged.loc[merged["Contact Person Name"].str.strip() == "", "Contact Person Name"] = "Not Available"
-            merged.loc[merged["Mobile Number"].str.strip() == "", "Mobile Number"] = "Not Available"
+        # ✅ Safe fill
+        merged["Contact Person Name"] = merged["Contact Person Name"].fillna("").astype(str)
+        merged["Mobile Number"] = merged["Mobile Number"].fillna("").astype(str)
 
-            # Assigned Staff
-            if staff_input:
-                staff_list = [s.strip() for s in staff_input.split(",") if s.strip()]
-                n = len(merged)
-                k = len(staff_list)
+        merged.loc[merged["Contact Person Name"].str.strip() == "", "Contact Person Name"] = "Not Available"
+        merged.loc[merged["Mobile Number"].str.strip() == "", "Mobile Number"] = "Not Available"
 
-                if k > 0:
-                    block_size = math.ceil(n / k)
-                    assigned = []
-                    for staff in staff_list:
-                        assigned.extend([staff] * block_size)
-                    merged["Assigned Staff"] = assigned[:n]
-                else:
-                    merged["Assigned Staff"] = ""
+        # Assigned Staff
+        if staff_input:
+            staff_list = [s.strip() for s in staff_input.split(",") if s.strip()]
+            n = len(merged)
+            k = len(staff_list)
+
+            if k > 0:
+                block_size = math.ceil(n / k)
+                assigned = []
+                for staff in staff_list:
+                    assigned.extend([staff] * block_size)
+                merged["Assigned Staff"] = assigned[:n]
             else:
                 merged["Assigned Staff"] = ""
+        else:
+            merged["Assigned Staff"] = ""
 
-            # ✅ FINAL COLUMN ORDER
-            final_columns = [
-                "WARD",
-                "Facility Name",
-                "Form Type",
-                "Category",
-                "REMARK",
-                "Contact Person Name",
-                "Mobile Number",
-                "Assigned Staff"
-            ]
+        # Final column order
+        final_columns = [
+            "WARD",
+            "Facility Name",
+            "Form Type",
+            "Category",
+            "REMARK",
+            "Contact Person Name",
+            "Mobile Number",
+            "Assigned Staff"
+        ]
 
-            merged = merged[final_columns]
+        merged = merged[final_columns]
 
-            st.subheader("Defaulter List with Contact & Staff")
-            st.dataframe(merged, use_container_width=True, hide_index=True)
+        st.subheader("Defaulter List with Contact & Staff")
+        st.dataframe(merged, use_container_width=True, hide_index=True)
 
-            csv2 = merged.to_csv(index=False).encode('utf-8')
-            st.download_button("Download Full Data", csv2, "final_output.csv", "text/csv")
+        csv2 = merged.to_csv(index=False).encode('utf-8')
+        st.download_button("Download Full Data", csv2, "final_output.csv", "text/csv")
 
 else:
     st.info("Upload at least one file to see results.")
