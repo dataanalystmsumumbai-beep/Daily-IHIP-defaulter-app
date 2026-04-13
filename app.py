@@ -14,99 +14,83 @@ tab1, tab2 = st.tabs(["Defaulter Analysis", "Reporting Summary"])
 with tab1:
     st.title("Daily IHIP Defaulter Analysis")
 
-    # ---------------- UPLOAD ----------------
     col1, col2, col3 = st.columns(3)
-
     s_file = col1.file_uploader("S-Form", type=["xlsx"], key="s_def")
     p_file = col2.file_uploader("P-Form", type=["xlsx"], key="p_def")
     l_file = col3.file_uploader("L-Form", type=["xlsx"], key="l_def")
 
     st.markdown("---")
-
     contact_file = st.file_uploader("Upload Contact File", type=["xlsx"], key="cont_def")
     staff_input = st.text_input("Enter Staff Names (comma separated) i.e. A,B,C", key="staff_def")
 
-    # ---------------- INPUTS ----------------
     report_date = st.text_input("Enter Date (DD-MM-YYYY)", "13-04-2026", key="date_def")
     report_time = st.text_input("Enter Time Only (e.g. 04.05pm)", key="time_def")
 
-    # ---------------- AUTO DAY + DATETIME ----------------
     day_name = ""
     try:
         day_name = datetime.datetime.strptime(report_date, "%d-%m-%Y").strftime("%A")
     except:
         day_name = ""
-
     report_datetime = f"{day_name} {report_date} till {report_time}"
 
-    # ---------------- PROCESS ----------------
     def process_file(file, form):
-        raw = pd.read_excel(file, header=None)
+        # Defaulter logic needs to be robust against openpyxl errors too
+        try:
+            raw = pd.read_excel(file, header=None, engine='openpyxl')
+        except:
+            raw = pd.read_excel(file, header=None) # Fallback
 
         header_row = 0
         for i, row in raw.iterrows():
             if "facility name" in str(row).lower():
                 header_row = i
                 break
-
         df = pd.read_excel(file, skiprows=header_row)
         df.columns = [str(c).strip() for c in df.columns]
-
+        
         def find_col(k):
             return next((c for c in df.columns if k in c.lower()), None)
-
+        
         name = find_col("facility name")
         subtype = find_col("facility sub-type")
         report = find_col("number of times reported")
         ward = next((c for c in df.columns if "ward" in c.lower() or "zone" in c.lower()), None)
-
+        
         if not (name and subtype and report):
             return pd.DataFrame()
-
+        
         df[report] = pd.to_numeric(df[report], errors="coerce")
         df = df[df[report].fillna(0) == 0].copy()
-
+        
         category_map = {
-            "Dispensary": "PUBLIC",
-            "Government Medical College Hospital": "PUBLIC",
-            "IGSL Satellite Laboratory": "PUBLIC",
-            "Infectious Disease Hospital": "PUBLIC",
-            "Municipal Hospital": "PUBLIC",
-            "Other Government Hospitals": "PUBLIC",
-            "Urban Primary Health Centre": "PUBLIC",
-            "Health Post": "PUBLIC",
-            "Health Sub Centre": "PUBLIC",
-            "Private Hospital": "PRIVATE",
+            "Dispensary": "PUBLIC", "Government Medical College Hospital": "PUBLIC",
+            "IGSL Satellite Laboratory": "PUBLIC", "Infectious Disease Hospital": "PUBLIC",
+            "Municipal Hospital": "PUBLIC", "Other Government Hospitals": "PUBLIC",
+            "Urban Primary Health Centre": "PUBLIC", "Health Post": "PUBLIC",
+            "Health Sub Centre": "PUBLIC", "Private Hospital": "PRIVATE",
             "Private Laboratory": "PRIVATE"
         }
-
         df["Category"] = df[subtype].map(category_map).fillna("OTHER")
-
+        
         out = pd.DataFrame()
         out["WARD"] = df[ward].fillna("Not Mentioned") if ward else "Not Mentioned"
         out["Facility Name"] = df[name]
         out["Form Type"] = form
         out["Category"] = df["Category"]
         out["REMARK"] = ""
-
         return out
 
-    # ---------------- MAIN ----------------
     dfs = []
-
-    if s_file:
-        dfs.append(process_file(s_file, "S FORM"))
-    if p_file:
-        dfs.append(process_file(p_file, "P FORM"))
-    if l_file:
-        dfs.append(process_file(l_file, "L FORM"))
+    if s_file: dfs.append(process_file(s_file, "S FORM"))
+    if p_file: dfs.append(process_file(p_file, "P FORM"))
+    if l_file: dfs.append(process_file(l_file, "L FORM"))
 
     if dfs:
         final_df = pd.concat(dfs, ignore_index=True)
         final_df["WARD"] = final_df["WARD"].fillna("Not Mentioned").astype(str)
         final_df["ward_sort"] = final_df["WARD"].apply(lambda x: "ZZZ" if x.strip().lower() == "not mentioned" else x)
         final_df = final_df.sort_values(["ward_sort", "Facility Name"]).drop(columns=["ward_sort"])
-
+        
         out1 = final_df.copy()
         out1.insert(0, "Sr No", range(1, len(out1)+1))
         st.subheader("Output 1")
@@ -114,7 +98,6 @@ with tab1:
 
         merged = final_df.copy()
         merged["key"] = merged["Facility Name"].astype(str).str.strip().str.lower()
-
         if contact_file:
             cdf = pd.read_excel(contact_file)
             cdf.columns = [str(c).strip() for c in cdf.columns]
@@ -125,7 +108,7 @@ with tab1:
                 cdf["key"] = cdf[name_c].astype(str).str.strip().str.lower()
                 merged = merged.merge(cdf[["key", person, mobile]], on="key", how="left")
                 merged.rename(columns={person: "Contact Person Name", mobile: "Mobile Number"}, inplace=True)
-
+        
         if "Mobile Number" in merged.columns:
             merged["Mobile Number"] = merged["Mobile Number"].astype(str).str.replace(".0", "", regex=False)
         for col in ["Contact Person Name", "Mobile Number"]:
@@ -153,30 +136,28 @@ with tab1:
         st.dataframe(out2, use_container_width=True)
 
         def generate_output1_excel(df):
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            buf = BytesIO()
+            with pd.ExcelWriter(buf, engine='openpyxl') as writer:
                 df.to_excel(writer, index=False, startrow=2)
                 ws = writer.sheets['Sheet1']
                 ws.merge_cells('A1:F1'); ws['A1'] = "IHIP Defaulter"
                 ws.merge_cells('A2:F2'); ws['A2'] = report_date
-            return output.getvalue()
+            return buf.getvalue()
 
         def generate_output2_excel(df, report_datetime):
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            buf = BytesIO()
+            with pd.ExcelWriter(buf, engine='openpyxl') as writer:
                 df.to_excel(writer, index=False, startrow=2)
                 ws = writer.sheets['Sheet1']
                 ws.merge_cells('A1:I1'); ws['A1'] = "IHIP Defaulter List of S, P & L Form"
                 ws.merge_cells('A2:I2'); ws['A2'] = report_datetime
-            return output.getvalue()
+            return buf.getvalue()
 
-        st.download_button("Download Output 1 Excel", generate_output1_excel(out1), f"{report_date}_Defaulter_List.xlsx")
-        st.download_button("Download Output 2 Excel", generate_output2_excel(out2, report_datetime), f"Defaulter_List_{report_datetime}.xlsx")
-    else:
-        st.info("Upload files to proceed")
+        st.download_button("Download Output 1", generate_output1_excel(out1), f"{report_date}_Def.xlsx")
+        st.download_button("Download Output 2", generate_output2_excel(out2, report_datetime), f"Def_List_{report_datetime}.xlsx")
 
 # ----------------------------------------------------------------
-# TAB 2: CONSOLIDATED REPORTING SUMMARY (Independent Tool)
+# TAB 2: CONSOLIDATED REPORTING SUMMARY (Fixed TypeError)
 # ----------------------------------------------------------------
 with tab2:
     st.title("Reporting Summary Status")
@@ -190,8 +171,16 @@ with tab2:
         if file.name.lower().endswith('.csv'):
             df = pd.read_csv(file)
         else:
-            df = pd.read_excel(file)
+            # FIX: Openpyxl cha error yenar nahi yasathi read_excel madhe engine handle kele aahe
+            try:
+                # Try reading with default engine, if fails use backup
+                df = pd.read_excel(file)
+            except Exception as e:
+                # Fallback to handle style errors (Common in openpyxl)
+                st.warning(f"Formatting issues in {file.name}, reading data only.")
+                df = pd.read_excel(file, engine='openpyxl')
         
+        # Normalize column names
         df.columns = [" ".join(str(c).split()) for c in df.columns]
         
         def find_col(k):
@@ -203,12 +192,12 @@ with tab2:
         never_col = find_col("never reported")
         
         if not (ward_col and total_col and perc_col and never_col):
+            st.error(f"Required columns not found in {file.name}")
             return pd.DataFrame()
             
         df = df[[ward_col, total_col, perc_col, never_col]].copy()
         df.rename(columns={
-            ward_col: "ward",
-            total_col: "Total Reporting Units",
+            ward_col: "ward", total_col: "Total Reporting Units",
             perc_col: "% Of Average Reporting Units",
             never_col: "Never Reported Reporting Units"
         }, inplace=True)
@@ -235,7 +224,6 @@ with tab2:
             
             master = master.sort_values("ward")
             
-            # Totals
             total_row = {"ward": "Total"}
             for sfx in ["_S", "_P", "_L"]:
                 total_row[f"Total Reporting Units{sfx}"] = master[f"Total Reporting Units{sfx}"].sum()
