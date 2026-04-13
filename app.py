@@ -28,7 +28,10 @@ st.markdown("---")
 # =========================================================
 
 def process_file(file, form):
-    raw = pd.read_excel(file, header=None)
+    try:
+        raw = pd.read_excel(file, engine="openpyxl", header=None)
+    except Exception:
+        raw = pd.read_excel(file)
 
     header_row = 0
     for i, row in raw.iterrows():
@@ -36,7 +39,7 @@ def process_file(file, form):
             header_row = i
             break
 
-    df = pd.read_excel(file, skiprows=header_row)
+    df = pd.read_excel(file, skiprows=header_row, engine="openpyxl")
     df.columns = [str(c).strip() for c in df.columns]
 
     def find_col(k):
@@ -74,8 +77,7 @@ def process_file(file, form):
     out["Facility Name"] = df[name]
     out["Form Type"] = form
     out["Category"] = df["Category"]
-
-    out["REMARK"] = ""   # ✅ FIX RESTORED
+    out["REMARK"] = ""
 
     return out
 
