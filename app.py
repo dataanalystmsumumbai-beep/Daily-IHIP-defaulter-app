@@ -41,7 +41,7 @@ def process_file(file, form_name):
     ward_col = next((c for c in df.columns if any(w in c.lower() for w in ['ward', 'zone'])), None)
 
     if not (name_col and subtype_col and report_col):
-        return pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), {}
 
     df[report_col] = pd.to_numeric(df[report_col], errors='coerce')
 
@@ -77,6 +77,15 @@ def process_file(file, form_name):
 
     defaulters['Category'] = defaulters[subtype_col].map(category_map).fillna("OTHER")
 
+    # 🔥 NEW: Public vs Private Count
+    public_count = (defaulters['Category'] == "PUBLIC").sum()
+    private_count = (defaulters['Category'] == "PRIVATE").sum()
+
+    counts = {
+        "PUBLIC": public_count,
+        "PRIVATE": private_count
+    }
+
     result = pd.DataFrame()
     result["WARD"] = defaulters[ward_col]
     result["Facility Name"] = defaulters[name_col]
@@ -84,28 +93,41 @@ def process_file(file, form_name):
     result["Category"] = defaulters["Category"]
     result["REMARK"] = ""
 
-    return result, summary
+    return result, summary, counts
 
 
 dfs = []
 summaries = {}
+form_counts = {}
 
 if s_file:
-    df_s, sum_s = process_file(s_file, "S FORM")
+    df_s, sum_s, count_s = process_file(s_file, "S FORM")
     dfs.append(df_s)
     summaries["S FORM"] = sum_s
+    form_counts["S FORM"] = count_s
 
 if p_file:
-    df_p, sum_p = process_file(p_file, "P FORM")
+    df_p, sum_p, count_p = process_file(p_file, "P FORM")
     dfs.append(df_p)
     summaries["P FORM"] = sum_p
+    form_counts["P FORM"] = count_p
 
 if l_file:
-    df_l, sum_l = process_file(l_file, "L FORM")
+    df_l, sum_l, count_l = process_file(l_file, "L FORM")
     dfs.append(df_l)
     summaries["L FORM"] = sum_l
+    form_counts["L FORM"] = count_l
 
-# 🔥 Show Ward-wise Summary
+# 🔥 NEW: Show Public/Private Counts
+if form_counts:
+    st.subheader("Form-wise Category Count")
+
+    for form, counts in form_counts.items():
+        col1, col2 = st.columns(2)
+        col1.metric(f"{form} - PUBLIC", counts["PUBLIC"])
+        col2.metric(f"{form} - PRIVATE", counts["PRIVATE"])
+
+# 🔥 Ward-wise Summary
 if summaries:
     st.subheader("Ward-wise Reporting Summary")
 
@@ -113,7 +135,7 @@ if summaries:
         st.markdown(f"### {form}")
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
-# 🔥 Combined Defaulter List
+# 🔥 Combined Defaulters
 if dfs:
     final_df = pd.concat(dfs, ignore_index=True)
     final_df = final_df.sort_values(["WARD", "Facility Name"])
