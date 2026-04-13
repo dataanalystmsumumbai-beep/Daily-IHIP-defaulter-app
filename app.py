@@ -2,70 +2,89 @@ import streamlit as st
 import pandas as pd
 
 st.set_page_config(page_title="IHIP Defaulter Tool", layout="wide")
-st.title("📊 Daily IHIP Defaulter Analysis")
+st.title("Daily IHIP Defaulter Analysis")
 
 file = st.file_uploader("Upload IHIP Excel File", type=["xlsx"])
 
 if file is not None:
     try:
-        # १. योग्य हेडर शोधणे (Facility Name जिथे आहे ती ओळ शोधतो)
+        # Step 1: Detect correct header row
         raw = pd.read_excel(file, header=None)
         header_row = 0
+
         for i, row in raw.iterrows():
-            if "Facility Name" in row.astype(str).values:
+            row_str = [str(cell).strip().lower() for cell in row]
+            if any("facility name" in cell for cell in row_str):
                 header_row = i
                 break
-        
-        # २. डेटा लोड करणे
+
+        # Step 2: Load actual data
         df = pd.read_excel(file, skiprows=header_row)
-        
-        # ३. कॉलमची नावे स्वच्छ करणे (Spaces आणि Newlines काढणे)
+
+        # Step 3: Clean column names
         df.columns = [str(c).replace('\n', ' ').strip() for c in df.columns]
-        
-        # ४. महत्त्वाचे कॉलम्स शोधणे
-        name_col = next((c for c in df.columns if 'Facility Name' in c), None)
-        type_col = next((c for c in df.columns if 'Facility Type' in c), None)
-        report_col = next((c for c in df.columns if 'Number of times Reported' in c), None)
-        ward_col = next((c for c in df.columns if any(w in c for w in ['Ward', 'Zone'])), None)
+
+        # Step 4: Find required columns
+        def find_col(keyword):
+            return next((c for c in df.columns if keyword.lower() in c.lower()), None)
+
+        name_col = find_col('facility name')
+        type_col = find_col('facility type')
+        report_col = find_col('number of times reported')
+        ward_col = next((c for c in df.columns if any(w in c.lower() for w in ['ward', 'zone'])), None)
 
         if name_col and type_col and report_col:
-            # ५. रिपोर्टिंग कॉलमला नंबरमध्ये बदलणे
-            df[report_col] = pd.to_numeric(df[report_col], errors='coerce').fillna(-1)
-            
-            # ६. फक्त ० रिपोर्टिंग असणाऱ्या ओळी निवडणे
-            defaulters = df[df[report_col] == 0].copy()
 
-            # ७. 'Private' आणि 'Public' वर्गीकरण (Fuzzy Match)
-            def classify(val):
-                v = str(val).upper().strip()
-                if "PRIVATE" in v: # Private Hospital/Laboratory साठी
-                    return "Private"
-                return "Public" # बाकी सर्व (Dispensary, GMC, इ.) साठी
+            # Step 5: Convert reporting column
+            df[report_col] = pd.to_numeric(df[report_col], errors='coerce')
 
-            defaulters['Category'] = defaulters[type_col].apply(classify)
+            # Step 6: Filter defaulters (0 reporting)
+            defaulters = df[df[report_col].fillna(0).astype(float) == 0.0].copy()
 
-            # ८. मोजणी (Counts)
+            # Step 7: Exact mapping for Facility Type → Category
+            category_map = {
+                "Dispensary": "Public",
+                "Government Medical College Hospital": "Public",
+                "IGSL Satellite Laboratory": "Public",
+                "Infectious Disease Hospital": "Public",
+                "Municipal Hospital": "Public",
+                "Other Government Hospitals": "Public",
+                "Urban Primary Health Centre": "Public",
+                "Private Hospital": "Private",
+                "Private Laboratory": "Private"
+            }
+
+            defaulters['Category'] = defaulters[type_col].map(category_map).fillna("Other")
+
+            # Step 8: Count summary
             p_count = (defaulters['Category'] == "Private").sum()
             pub_count = (defaulters['Category'] == "Public").sum()
 
-            # ९. रिझल्ट दाखवणे
-            st.info(f"📍 Summary: Total Private Defaulters: {p_count} | Total Public Defaulters: {pub_count}")
+            # Step 9: Display metrics
+            col1, col2 = st.columns(2)
+            col1.metric("Private Defaulters", p_count)
+            col2.metric("Public Defaulters", pub_count)
 
-            # डिस्प्ले टेबल तयार करणे
+            # Step 10: Prepare display columns
             show_cols = []
             if ward_col:
                 defaulters = defaulters.rename(columns={ward_col: "Ward"})
                 show_cols.append("Ward")
-            show_cols.extend([name_col, "Category"])
 
+            show_cols.extend([name_col, type_col, "Category"])
+
+            # Step 11: Display table
             if not defaulters.empty:
-                st.subheader("List of Defaulter Facilities")
+                st.subheader("Defaulter Facilities List")
                 st.dataframe(defaulters[show_cols], use_container_width=True, hide_index=True)
-                
+
+                # Download option
                 csv = defaulters[show_cols].to_csv(index=False).encode('utf-8')
                 st.download_button("Download CSV", csv, "defaulters.csv", "text/csv")
+
             else:
                 st.success("No defaulters found.")
+
         else:
             st.error("Required columns not found. Check your Excel headers.")
 
