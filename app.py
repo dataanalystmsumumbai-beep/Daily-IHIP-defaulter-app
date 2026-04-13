@@ -86,6 +86,9 @@ def process_file(file, form):
 
     return out
 
+# =====================================================
+# MAIN OUTPUT 1 & 2
+# =====================================================
 dfs = []
 
 if s_file:
@@ -101,7 +104,7 @@ if dfs:
 
     # ---------------- OUTPUT 1 ----------------
     out1 = final_df.copy()
-    out1.insert(0, "Sr No", range(1, len(out1)+1))
+    out1.insert(0, "Sr No", range(1, len(out1) + 1))
 
     st.subheader("Output 1")
     st.dataframe(out1, use_container_width=True)
@@ -152,16 +155,20 @@ if dfs:
     merged.drop(columns=["key"], inplace=True)
 
     out2 = merged.copy()
-    out2.insert(0, "Sr No", range(1, len(out2)+1))
+    out2.insert(0, "Sr No", range(1, len(out2) + 1))
 
     st.subheader("Output 2")
     st.dataframe(out2, use_container_width=True)
 
+else:
+    st.info("Upload files for Output 1 & 2")
+
 # =====================================================
-# ================= OUTPUT 3 (SEPARATE INPUTS) =========
+# ================= OUTPUT 3 ============================
 # =====================================================
+
 st.markdown("---")
-st.header("Output 3 - Ward Reporting Comparison")
+st.header("Output 3 - Ward Reporting")
 
 colA, colB, colC = st.columns(3)
 
@@ -177,7 +184,7 @@ def process_o3(file, prefix):
     ward_col = "A D M I N I S T R A T I V E W A R D"
     total_col = next((c for c in df.columns if "total reporting" in c.lower()), None)
     percent_col = next((c for c in df.columns if "% of average" in c.lower()), None)
-    never_col = next((c for c in df.columns if "never reported reporting units for selected period" in c.lower()), None)
+    never_col = next((c for c in df.columns if "never reported" in c.lower()), None)
 
     out = pd.DataFrame()
     out[f"{prefix}_Ward"] = df[ward_col] if ward_col in df.columns else ""
@@ -229,6 +236,3 @@ if s3 and p3 and l3:
 
 else:
     st.info("Upload S, P, L files for Output 3")
-
-else:
-    st.info("Upload files for Output 1 & 2")
