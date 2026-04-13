@@ -196,16 +196,16 @@ if dfs:
 
     # DOWNLOAD BUTTONS
     st.download_button(
-        "Download Output 1 Excel",
-        generate_output1_excel(out1),
-        "output1.xlsx"
-    )
+    "Download Output 1 Excel",
+    generate_output1_excel(out1),
+    f"{report_date} IHIP Defaulter List of S, P & L Form.xlsx"
+)
 
     st.download_button(
-        "Download Output 2 Excel",
-        generate_output2_excel(out2),
-        "output2.xlsx"
-    )
+    "Download Output 2 Excel",
+    generate_output2_excel(out2),
+    f"{report_date} IHIP Defaulter List of S, P & L Form till {report_datetime}.xlsx"
+)
 
 else:
     st.info("Upload files to proceed")
