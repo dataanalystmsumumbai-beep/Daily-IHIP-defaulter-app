@@ -153,8 +153,18 @@ with tab1:
                 ws.merge_cells('A2:I2'); ws['A2'] = report_datetime
             return buf.getvalue()
 
-        st.download_button("Download Output 1", generate_output1_excel(out1), f"{report_date}_Def.xlsx")
-        st.download_button("Download Output 2", generate_output2_excel(out2, report_datetime), f"Def_List_{report_datetime}.xlsx")
+            st.download_button(
+        "Download Output 1 Excel",
+        generate_output1_excel(out1),
+        f"{report_date} IHIP Defaulter List of S, P & L Form.xlsx"
+    )
+
+       st.download_button(
+        "Download Output 2 Excel",
+        generate_output2_excel(out2, report_datetime),
+        f"IHIP Defaulter List of S, P & L Form of {report_datetime}.xlsx"
+    )
+
 
 # ----------------------------------------------------------------
 # TAB 2: CONSOLIDATED REPORTING SUMMARY (Bypass Style Error)
