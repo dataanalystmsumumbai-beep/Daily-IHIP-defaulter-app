@@ -1,80 +1,82 @@
 import streamlit as st
 import pandas as pd
+import re
 
-# Basic Page Setup
-st.set_page_config(page_title="IHIP Analysis", layout="wide")
+# Page configuration
+st.set_page_config(page_title="IHIP Defaulter Analysis", layout="wide")
+
 st.title("Daily IHIP Defaulter Analysis")
 
 uploaded_file = st.file_uploader("Upload IHIP Excel File", type=["xlsx"])
 
 if uploaded_file is not None:
     try:
-        # Step 1: Smart Header Detection
-        # We scan for the row containing 'Facility Name' to start reading correctly
-        raw_data = pd.read_excel(uploaded_file, header=None)
-        header_row_index = 0
-        for i, row in raw_data.iterrows():
+        # Step 1: Find the header row by searching for 'Facility Name'
+        raw_df = pd.read_excel(uploaded_file, header=None)
+        header_row = 0
+        for i, row in raw_df.iterrows():
             if "Facility Name" in row.astype(str).values:
-                header_row_index = i
+                header_row = i
                 break
         
-        # Step 2: Read data from the detected header row
-        df = pd.read_excel(uploaded_file, skiprows=header_row_index)
+        # Step 2: Load data with the identified header
+        df = pd.read_excel(uploaded_file, skiprows=header_row)
         
-        # Clean column names (remove spaces and hidden characters)
-        df.columns = [str(c).strip() for c in df.columns]
+        # Clean column names: remove newlines, extra spaces, and convert to lowercase for searching
+        df.columns = [re.sub(r'\s+', ' ', str(c)).strip() for c in df.columns]
+        
+        # Step 3: Map the necessary columns using partial matches
+        col_map = {
+            'target': next((c for c in df.columns if 'Number of times Reported' in c), None),
+            'type': next((c for c in df.columns if 'Facility Type' in c), None),
+            'name': next((c for c in df.columns if 'Facility Name' in c), None),
+            'ward': next((c for c in df.columns if any(x in c for x in ['Ward', 'Zone'])), None)
+        }
 
-        # Step 3: Identify required columns
-        name_col = next((c for c in df.columns if 'Facility Name' in c), None)
-        type_col = next((c for c in df.columns if 'Facility Type' in c), None)
-        report_col = next((c for c in df.columns if 'Number of times Reported' in c), None)
-        ward_col = next((c for c in df.columns if 'Zone' in c or 'Ward' in c), None)
-
-        if name_col and type_col and report_col:
-            # Ensure report column is numeric and drop rows where Facility Name is empty
-            df[report_col] = pd.to_numeric(df[report_col], errors='coerce')
-            df = df.dropna(subset=[name_col])
+        if col_map['target'] and col_map['type']:
+            # Step 4: Data Cleaning
+            # Convert reporting column to numeric; non-numeric values become NaN
+            df[col_map['target']] = pd.to_numeric(df[col_map['target']], errors='coerce')
             
-            # Filter Defaulters (Reporting Count == 0)
-            defaulters = df[df[report_col] == 0].copy()
+            # Filter for defaulters (reported == 0) and remove empty facility rows
+            defaulters = df[df[col_map['target']] == 0].dropna(subset=[col_map['name']]).copy()
 
-            # Step 4: Classification Logic (Case-insensitive keyword search)
-            # This covers: Private Hospital, Private Laboratory, etc.
-            def classify(val):
-                v = str(val).upper()
-                if "PRIVATE" in v:
+            # Step 5: Classification Logic
+            # We use a case-insensitive search for the word 'PRIVATE'
+            def categorize(val):
+                text = str(val).strip().upper()
+                if "PRIVATE" in text:
                     return "Private"
                 return "Public"
 
-            defaulters['Category'] = defaulters[type_col].apply(classify)
+            defaulters['Category'] = defaulters[col_map['type']].apply(categorize)
 
-            # Step 5: Calculate Summary
+            # Step 6: Calculations
             private_count = (defaulters['Category'] == "Private").sum()
             public_count = (defaulters['Category'] == "Public").sum()
 
-            # Display Summary Line
+            # Display Summary
             st.info(f"Summary: Total Private Defaulters: {private_count} | Total Public Defaulters: {public_count}")
 
-            # Prepare Table for Display
-            if ward_col:
-                defaulters = defaulters.rename(columns={ward_col: "Ward"})
+            # Prepare the display table
+            display_cols = []
+            if col_map['ward']:
+                defaulters = defaulters.rename(columns={col_map['ward']: "Ward"})
+                display_cols.append("Ward")
             
-            # Select final columns to show
-            final_display_cols = []
-            if ward_col: final_display_cols.append("Ward")
-            final_display_cols.extend([name_col, "Category"])
-            
-            if not defaulters.empty:
-                st.subheader("List of Defaulter Facilities")
-                st.dataframe(defaulters[final_display_cols], use_container_width=True, hide_index=True)
-                
-                # CSV Download functionality
-                csv = defaulters[final_display_cols].to_csv(index=False).encode('utf-8')
-                st.download_button("Download Report", csv, "defaulter_list.csv", "text/csv")
-            else:
-                st.success("No defaulters found in the uploaded file.")
-        else:
-            st.error(f"Columns missing! Found: {list(df.columns)}")
+            display_cols.extend([col_map['name'], "Category"])
 
+            if not defaulters.empty:
+                st.subheader("Defaulter Facility List")
+                st.dataframe(defaulters[display_cols], use_container_width=True, hide_index=True)
+                
+                # Download Link
+                csv = defaulters[display_cols].to_csv(index=False).encode('utf-8')
+                st.download_button("Download Data as CSV", csv, "defaulters.csv", "text/csv")
+            else:
+                st.success("No facilities with 0 reports were found.")
+        else:
+            st.error("Error: Could not identify 'Facility Type' or 'Reporting' columns in the Excel file.")
+            
     except Exception as e:
-        st.error(f"An unexpected error occurred: {e}")
+        st.error(f"Application Error: {e}")
