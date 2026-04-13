@@ -1,65 +1,64 @@
 import streamlit as st
 import pandas as pd
 
-# Page setup
 st.set_page_config(page_title="IHIP Defaulter App", layout="wide")
 
 st.title("📊 Daily IHIP Defaulter Report")
-st.write("Upload the Excel file to analyze reporting status.")
+st.write("Upload your Excel file to find facilities with 0 reporting.")
 
-uploaded_file = st.file_uploader("Choose an Excel file", type=["xlsx"])
+file = st.file_uploader("Upload Excel File", type=["xlsx"])
 
-if uploaded_file is not None:
+if file is not None:
     try:
-        # Reading Excel - skipping the first title row
-        df = pd.read_excel(uploaded_file, skiprows=1)
+        # Loading file - Reading with flexibility
+        df = pd.read_excel(file, skiprows=1)
         
-        # Cleaning column names
-        df.columns = df.columns.str.strip()
+        # Standardizing column names (removing spaces and making it clean)
+        df.columns = [str(c).strip() for c in df.columns]
         
-        target_col = 'Number of times Reported'
-        ward_col = 'Zone/Administartive Ward Name'
-        type_col = 'Facility Type'
-        name_col = 'Facility Name'
-        
-        if target_col in df.columns:
-            # Filtering facilities that have 0 reports
+        # Defining the columns we are looking for
+        # We use 'in' logic to find columns even if names are slightly different
+        target_col = next((c for c in df.columns if 'Number of times Reported' in c), None)
+        ward_col = next((c for c in df.columns if 'Zone/Administartive Ward' in c or 'Ward Name' in c), None)
+        type_col = next((c for c in df.columns if 'Facility Type' in c), None)
+        name_col = next((c for c in df.columns if 'Facility Name' in c), None)
+
+        if target_col:
+            # Filtering for 0 reporting
             defaulters = df[df[target_col] == 0].copy()
             
-            # --- APPLYING YOUR REQUESTED CHANGES ---
+            # --- CUSTOM LOGIC STARTS ---
             
-            # 1. Rename 'Zone/Administartive Ward Name' to 'Ward'
-            if ward_col in defaulters.columns:
+            # 1. Rename Ward Column to 'Ward'
+            if ward_col:
                 defaulters = defaulters.rename(columns={ward_col: 'Ward'})
             
-            # 2. Advanced logic for Facility Type: 
-            # If "Private" exists in the name, set as 'Private', else 'Public'
-            if type_col in defaulters.columns:
+            # 2. Logic for Private vs Public
+            if type_col:
                 defaulters[type_col] = defaulters[type_col].apply(
                     lambda x: 'Private' if 'private' in str(x).lower() else 'Public'
                 )
             
-            # ---------------------------------------
+            # --- CUSTOM LOGIC ENDS ---
 
             st.warning(f"Total Defaulters Found: {len(defaulters)}")
             
-            # Final columns to show as per your request
-            final_display_cols = ['Ward', name_col, type_col]
-            
-            # Filter only those columns that actually exist
-            show_cols = [c for c in final_display_cols if c in defaulters.columns]
+            # Final table columns
+            final_cols = ['Ward', name_col, type_col]
+            # Keeping only existing columns to avoid errors
+            available_final_cols = [c for c in final_cols if c in defaulters.columns]
             
             if not defaulters.empty:
-                # Displaying the table
-                st.table(defaulters[show_cols])
+                st.table(defaulters[available_final_cols])
                 
-                # Download Option
-                csv = defaulters[show_cols].to_csv(index=False).encode('utf-8')
-                st.download_button("Download Defaulter List", csv, "defaulters.csv", "text/csv")
+                # Download as CSV
+                csv = defaulters[available_final_cols].to_csv(index=False).encode('utf-8')
+                st.download_button("Download List as CSV", csv, "defaulters.csv", "text/csv")
             else:
-                st.success("No defaulters found! All facilities have reported.")
+                st.success("Great! No defaulters (0 reporting) found.")
         else:
-            st.error(f"Could not find column: {target_col}")
+            st.error("Target column 'Number of times Reported' not found. Please check your file headers.")
+            st.write("Columns found in your file:", list(df.columns))
             
     except Exception as e:
-        st.error(f"An error occurred: {e}")
+        st.error(f"Something went wrong: {e}")
