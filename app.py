@@ -142,7 +142,7 @@ if dfs:
     csv = final_df.to_csv(index=False).encode('utf-8')
     st.download_button("Download CSV", csv, "combined_defaulters.csv", "text/csv")
 
-    # 🔥 Output 2 (Contact + Staff)
+    # 🔥 Output 2
     if contact_file:
         contact_df = pd.read_excel(contact_file)
         contact_df.columns = [str(c).strip() for c in contact_df.columns]
@@ -167,7 +167,14 @@ if dfs:
                 mobile_col: "Mobile Number"
             }, inplace=True)
 
-            # Assigned Staff Logic
+            # ✅ FIXED Missing Values Handling
+            merged["Contact Person Name"] = merged["Contact Person Name"].fillna("").astype(str)
+            merged["Mobile Number"] = merged["Mobile Number"].fillna("").astype(str)
+
+            merged.loc[merged["Contact Person Name"].str.strip() == "", "Contact Person Name"] = "Not Available"
+            merged.loc[merged["Mobile Number"].str.strip() == "", "Mobile Number"] = "Not Available"
+
+            # Assigned Staff
             if staff_input:
                 staff_list = [s.strip() for s in staff_input.split(",") if s.strip()]
                 n = len(merged)
@@ -184,11 +191,7 @@ if dfs:
             else:
                 merged["Assigned Staff"] = ""
 
-            # Fill missing contacts
-            merged["Contact Person Name"].fillna("Not Available", inplace=True)
-            merged["Mobile Number"].fillna("Not Available", inplace=True)
-
-            # 🔥 FINAL COLUMN ORDER FIX
+            # ✅ FINAL COLUMN ORDER
             final_columns = [
                 "WARD",
                 "Facility Name",
