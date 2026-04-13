@@ -19,7 +19,6 @@ l_file = col3.file_uploader(" ", type=["xlsx"], key="l")
 
 st.markdown("---")
 
-# Common function to process file
 def process_file(file, form_name):
     raw = pd.read_excel(file, header=None)
 
@@ -49,6 +48,7 @@ def process_file(file, form_name):
 
     defaulters = df[df[report_col].fillna(0).astype(float) == 0.0].copy()
 
+    # Updated category mapping
     category_map = {
         "Dispensary": "PUBLIC",
         "Government Medical College Hospital": "PUBLIC",
@@ -57,15 +57,16 @@ def process_file(file, form_name):
         "Municipal Hospital": "PUBLIC",
         "Other Government Hospitals": "PUBLIC",
         "Urban Primary Health Centre": "PUBLIC",
+        "Health Post": "PUBLIC",
+        "Health Sub Centre": "PUBLIC",
         "Private Hospital": "PRIVATE",
         "Private Laboratory": "PRIVATE"
     }
 
     defaulters['Category'] = defaulters[subtype_col].map(category_map).fillna("OTHER")
 
-    # Standard output format
     result = pd.DataFrame()
-    
+
     if ward_col:
         result["WARD"] = defaulters[ward_col]
     else:
@@ -78,7 +79,6 @@ def process_file(file, form_name):
 
     return result
 
-# Process all files
 dfs = []
 
 if s_file:
@@ -90,11 +90,9 @@ if p_file:
 if l_file:
     dfs.append(process_file(l_file, "L FORM"))
 
-# Combine all
 if dfs:
     final_df = pd.concat(dfs, ignore_index=True)
 
-    # Sort for clean look
     final_df = final_df.sort_values(["WARD", "Facility Name"])
 
     st.subheader("Defaulter Facilities Combined List")
