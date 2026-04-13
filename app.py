@@ -165,7 +165,7 @@ with tab1:
         st.download_button("Download Output 2", generate_output2_excel(out2, report_datetime), f"IHIP Defaulter List of S, P & L Form of _{report_datetime}.xlsx")
 
 # ----------------------------------------------------------------
-# TAB 2: CONSOLIDATED REPORTING SUMMARY (CRASH SAFE VERSION)
+# TAB 2: CONSOLIDATED REPORTING SUMMARY (FINAL CRASH SAFE VERSION)
 # ----------------------------------------------------------------
 
 import pandas as pd
@@ -173,7 +173,7 @@ import streamlit as st
 from io import BytesIO
 import warnings
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 with tab2:
     st.title("Reporting Summary Status")
@@ -188,47 +188,36 @@ with tab2:
         if file is None:
             return pd.DataFrame()
 
+        # CSV support
+        if file.name.lower().endswith(".csv"):
+            try:
+                return pd.read_csv(file)
+            except:
+                return pd.DataFrame()
+
+        # Excel safe read
         try:
-            # fastest path
-            return pd.read_excel(file)
+            # BEST: ignores styles completely
+            return pd.read_excel(file, engine="calamine")
         except Exception:
             try:
                 file.seek(0)
-                return pd.read_excel(file, engine="openpyxl")
+                return pd.read_excel(file, engine="openpyxl", dtype=str)
             except Exception:
-                try:
-                    file.seek(0)
-                    import openpyxl
-                    wb = openpyxl.load_workbook(file, data_only=True, read_only=True, keep_links=False)
-                    ws = wb.active
-                    data = list(ws.iter_rows(values_only=True))
+                return pd.DataFrame()
 
-                    if not data:
-                        return pd.DataFrame()
-
-                    return pd.DataFrame(data[1:], columns=data[0])
-                except Exception:
-                    return pd.DataFrame()
-
-    # ---------------- PROCESS FUNCTION ----------------
+    # ---------------- PROCESS FILE ----------------
     def process_summary_file(file, form_name):
         if file is None:
             return pd.DataFrame()
 
-        # CSV support
-        if file.name.lower().endswith(".csv"):
-            try:
-                df = pd.read_csv(file)
-            except Exception:
-                return pd.DataFrame()
-        else:
-            df = safe_read_excel(file)
+        df = safe_read_excel(file)
 
         if df is None or df.empty:
-            st.error(f"{form_name}: File could not be read or is empty")
+            st.error(f"{form_name}: File cannot be read or is empty")
             return pd.DataFrame()
 
-        # Clean columns
+        # Clean column names
         df.columns = [" ".join(str(c).split()).strip() for c in df.columns]
 
         # Column finder
@@ -240,7 +229,7 @@ with tab2:
         perc_col = find_col("report") or find_col("%")
 
         if not ward_col or not total_col or not perc_col:
-            st.warning(f"{form_name}: Required columns missing (Ward / Total / Reporting %)")
+            st.warning(f"{form_name}: Missing required columns (Ward / Total / Reporting %)")
             return pd.DataFrame()
 
         df = df[[ward_col, total_col, perc_col]].copy()
@@ -251,7 +240,6 @@ with tab2:
             perc_col: "% Reporting"
         }, inplace=True)
 
-        # Clean data
         df["ward"] = df["ward"].astype(str).str.strip()
         df = df[df["ward"].str.lower() != "nan"]
 
@@ -271,7 +259,7 @@ with tab2:
             st.error("One or more files are invalid. Please check format.")
         else:
 
-            # Rename to avoid collision BEFORE merge
+            # Rename BEFORE merge (safe approach)
             ds.rename(columns={
                 "Total Units": "Total Units_S",
                 "% Reporting": "% Reporting_S"
@@ -287,20 +275,21 @@ with tab2:
                 "% Reporting": "% Reporting_L"
             }, inplace=True)
 
-            # Merge safely
+            # Merge
             master = ds.merge(dp, on="ward", how="outer")
             master = master.merge(dl, on="ward", how="outer")
 
             master = master.fillna(0)
             master = master.sort_values("ward")
 
-            # Final structure
-            export_df = master[[
-                "ward",
-                "Total Units_S", "% Reporting_S",
-                "Total Units_P", "% Reporting_P",
-                "Total Units_L", "% Reporting_L"
-            ]]
+            export_df = master[
+                [
+                    "ward",
+                    "Total Units_S", "% Reporting_S",
+                    "Total Units_P", "% Reporting_P",
+                    "Total Units_L", "% Reporting_L"
+                ]
+            ]
 
             st.subheader("Summary Preview")
             st.dataframe(export_df, use_container_width=True)
@@ -328,8 +317,8 @@ with tab2:
                         "bg_color": "#D9EAD3"
                     })
 
-                    # Column headers styling
-                    for col_num, value in enumerate(export_df.columns.values):
+                    # Style headers
+                    for col_num, value in enumerate(export_df.columns):
                         worksheet.write(3, col_num, value, header_fmt)
 
                     # Group headers
