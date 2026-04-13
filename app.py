@@ -199,7 +199,9 @@ if dfs:
 
             ws.merge_cells('A2:I2')
             ws['A2'] = report_datetime
-
+# ---------------- MOBILE FORMAT FIX ----------------
+for row in range(4, ws.max_row + 1):
+    ws[f'F{row}'].number_format = '@'
         return output.getvalue()
 
     # ---------------- DOWNLOAD ----------------
