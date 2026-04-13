@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="IHIP Defaulter Tool", layout="wide")
 st.title("Daily IHIP Defaulter Analysis")
@@ -46,7 +45,7 @@ def process_file(file, form_name):
 
     df[report_col] = pd.to_numeric(df[report_col], errors='coerce')
 
-    # Total
+    # Total count (ward-wise)
     total = df.groupby(ward_col)[name_col].count().reset_index()
     total.columns = ["WARD", "Total"]
 
@@ -56,10 +55,10 @@ def process_file(file, form_name):
     non_reporting = defaulters.groupby(ward_col)[name_col].count().reset_index()
     non_reporting.columns = ["WARD", "Non-Reporting"]
 
+    # Merge
     summary = pd.merge(total, non_reporting, on="WARD", how="left").fillna(0)
     summary["Non-Reporting"] = summary["Non-Reporting"].astype(int)
     summary["Reporting"] = summary["Total"] - summary["Non-Reporting"]
-    summary["% Reporting"] = (summary["Reporting"] / summary["Total"] * 100).round(1)
 
     # Category mapping
     category_map = {
@@ -106,42 +105,15 @@ if l_file:
     dfs.append(df_l)
     summaries["L FORM"] = sum_l
 
-# 📊 DASHBOARD SECTION
+# 🔥 Show Ward-wise Summary
 if summaries:
-    st.subheader("📊 Ward-wise Reporting Dashboard")
+    st.subheader("Ward-wise Reporting Summary")
 
     for form, summary_df in summaries.items():
         st.markdown(f"### {form}")
-
-        colA, colB = st.columns(2)
-
-        # Bar Chart
-        with colA:
-            fig, ax = plt.subplots()
-            ax.bar(summary_df["WARD"], summary_df["Reporting"], label="Reporting")
-            ax.bar(summary_df["WARD"], summary_df["Non-Reporting"], bottom=summary_df["Reporting"], label="Non-Reporting")
-            ax.set_title(f"{form} - Ward Performance")
-            ax.set_xlabel("Ward")
-            ax.set_ylabel("Facilities")
-            ax.legend()
-            st.pyplot(fig)
-
-        # Pie Chart
-        with colB:
-            total_reporting = summary_df["Reporting"].sum()
-            total_non = summary_df["Non-Reporting"].sum()
-
-            fig2, ax2 = plt.subplots()
-            ax2.pie([total_reporting, total_non],
-                    labels=["Reporting", "Non-Reporting"],
-                    autopct='%1.1f%%')
-            ax2.set_title(f"{form} Overall Split")
-            st.pyplot(fig2)
-
-        # Table
         st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
-# 📋 Combined Defaulters
+# 🔥 Combined Defaulter List
 if dfs:
     final_df = pd.concat(dfs, ignore_index=True)
     final_df = final_df.sort_values(["WARD", "Facility Name"])
