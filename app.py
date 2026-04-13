@@ -4,93 +4,104 @@ import pandas as pd
 st.set_page_config(page_title="IHIP Defaulter Tool", layout="wide")
 st.title("Daily IHIP Defaulter Analysis")
 
-file = st.file_uploader("Upload IHIP Excel File", type=["xlsx"])
+st.subheader("Upload IHIP Forms")
 
-if file is not None:
-    try:
-        # Detect header row
-        raw = pd.read_excel(file, header=None)
-        header_row = 0
+col1, col2, col3 = st.columns(3)
 
-        for i, row in raw.iterrows():
-            row_str = [str(cell).strip().lower() for cell in row]
-            if any("facility name" in cell for cell in row_str):
-                header_row = i
-                break
+col1.markdown("### S-Form")
+s_file = col1.file_uploader(" ", type=["xlsx"], key="s")
 
-        # Load data
-        df = pd.read_excel(file, skiprows=header_row)
+col2.markdown("### P-Form")
+p_file = col2.file_uploader(" ", type=["xlsx"], key="p")
 
-        # Clean column names
-        df.columns = [str(c).replace('\n', ' ').strip() for c in df.columns]
+col3.markdown("### L-Form")
+l_file = col3.file_uploader(" ", type=["xlsx"], key="l")
 
-        # Helper function to find columns
-        def find_col(keyword):
-            return next((c for c in df.columns if keyword.lower() in c.lower()), None)
+st.markdown("---")
 
-        name_col = find_col('facility name')
-        subtype_col = find_col('facility sub-type')
-        report_col = find_col('number of times reported')
-        ward_col = next((c for c in df.columns if any(w in c.lower() for w in ['ward', 'zone'])), None)
+# Common function to process file
+def process_file(file, form_name):
+    raw = pd.read_excel(file, header=None)
 
-        if name_col and subtype_col and report_col:
+    header_row = 0
+    for i, row in raw.iterrows():
+        row_str = [str(cell).strip().lower() for cell in row]
+        if any("facility name" in cell for cell in row_str):
+            header_row = i
+            break
 
-            # Convert reporting column to numeric
-            df[report_col] = pd.to_numeric(df[report_col], errors='coerce')
+    df = pd.read_excel(file, skiprows=header_row)
 
-            # Filter defaulters (0 reporting)
-            defaulters = df[df[report_col].fillna(0).astype(float) == 0.0].copy()
+    df.columns = [str(c).replace('\n', ' ').strip() for c in df.columns]
 
-            # Mapping using Facility Sub-Type
-            category_map = {
-                "Dispensary": "Public",
-                "Government Medical College Hospital": "Public",
-                "IGSL Satellite Laboratory": "Public",
-                "Infectious Disease Hospital": "Public",
-                "Municipal Hospital": "Public",
-                "Other Government Hospitals": "Public",
-                "Urban Primary Health Centre": "Public",
-                "Private Hospital": "Private",
-                "Private Laboratory": "Private"
-            }
+    def find_col(keyword):
+        return next((c for c in df.columns if keyword.lower() in c.lower()), None)
 
-            defaulters['Category'] = defaulters[subtype_col].map(category_map).fillna("Other")
+    name_col = find_col('facility name')
+    subtype_col = find_col('facility sub-type')
+    report_col = find_col('number of times reported')
+    ward_col = next((c for c in df.columns if any(w in c.lower() for w in ['ward', 'zone'])), None)
 
-            # Counts
-            p_count = (defaulters['Category'] == "Private").sum()
-            pub_count = (defaulters['Category'] == "Public").sum()
+    if not (name_col and subtype_col and report_col):
+        return pd.DataFrame()
 
-            # Metrics UI
-            col1, col2 = st.columns(2)
-            col1.metric("Private Defaulters", p_count)
-            col2.metric("Public Defaulters", pub_count)
+    df[report_col] = pd.to_numeric(df[report_col], errors='coerce')
 
-            # Prepare display columns (ONLY required ones)
-            show_cols = []
+    defaulters = df[df[report_col].fillna(0).astype(float) == 0.0].copy()
 
-            if ward_col:
-                defaulters = defaulters.rename(columns={ward_col: "Ward"})
-                show_cols.append("Ward")
+    category_map = {
+        "Dispensary": "PUBLIC",
+        "Government Medical College Hospital": "PUBLIC",
+        "IGSL Satellite Laboratory": "PUBLIC",
+        "Infectious Disease Hospital": "PUBLIC",
+        "Municipal Hospital": "PUBLIC",
+        "Other Government Hospitals": "PUBLIC",
+        "Urban Primary Health Centre": "PUBLIC",
+        "Private Hospital": "PRIVATE",
+        "Private Laboratory": "PRIVATE"
+    }
 
-            show_cols.extend([name_col, "Category"])
+    defaulters['Category'] = defaulters[subtype_col].map(category_map).fillna("OTHER")
 
-            # Sort for better readability
-            defaulters = defaulters.sort_values(show_cols)
+    # Standard output format
+    result = pd.DataFrame()
+    
+    if ward_col:
+        result["WARD"] = defaulters[ward_col]
+    else:
+        result["WARD"] = ""
 
-            # Display table
-            if not defaulters.empty:
-                st.subheader("Defaulter Facilities List")
-                st.dataframe(defaulters[show_cols], use_container_width=True, hide_index=True)
+    result["Facility Name"] = defaulters[name_col]
+    result["Form Type"] = form_name
+    result["Category"] = defaulters["Category"]
+    result["REMARK"] = ""
 
-                # Download option
-                csv = defaulters[show_cols].to_csv(index=False).encode('utf-8')
-                st.download_button("Download CSV", csv, "defaulters.csv", "text/csv")
+    return result
 
-            else:
-                st.success("No defaulters found.")
+# Process all files
+dfs = []
 
-        else:
-            st.error("Required columns not found. Check your Excel headers.")
+if s_file:
+    dfs.append(process_file(s_file, "S FORM"))
 
-    except Exception as e:
-        st.error(f"Error: {e}")
+if p_file:
+    dfs.append(process_file(p_file, "P FORM"))
+
+if l_file:
+    dfs.append(process_file(l_file, "L FORM"))
+
+# Combine all
+if dfs:
+    final_df = pd.concat(dfs, ignore_index=True)
+
+    # Sort for clean look
+    final_df = final_df.sort_values(["WARD", "Facility Name"])
+
+    st.subheader("Defaulter Facilities Combined List")
+    st.dataframe(final_df, use_container_width=True, hide_index=True)
+
+    csv = final_df.to_csv(index=False).encode('utf-8')
+    st.download_button("Download CSV", csv, "combined_defaulters.csv", "text/csv")
+
+else:
+    st.info("Upload at least one file to see results.")
