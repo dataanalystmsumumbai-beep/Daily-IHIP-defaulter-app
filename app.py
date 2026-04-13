@@ -165,9 +165,12 @@ with tab1:
         st.download_button("Download Output 2", generate_output2_excel(out2, report_datetime), f"IHIP Defaulter List of S, P & L Form of _{report_datetime}.xlsx")
 
 # ----------------------------------------------------------------
-# TAB 2: CONSOLIDATED REPORTING SUMMARY (Style Error Fix & English Only)
+# TAB 2: CONSOLIDATED REPORTING SUMMARY (Hard Fix for Style Error)
 # ----------------------------------------------------------------
-import openpyxl # Make sure openpyxl is imported at the top of your app.py
+import openpyxl
+import pandas as pd
+import streamlit as st
+from io import BytesIO
 
 with tab2:
     st.title("Reporting Summary Status")
@@ -183,42 +186,40 @@ with tab2:
             if file.name.lower().endswith('.csv'):
                 df = pd.read_csv(file)
             else:
-                df = pd.read_excel(file)
+                # Force openpyxl to ignore all styles and formatting to prevent Fill errors
+                wb = openpyxl.load_workbook(file, data_only=True, read_only=True, keep_vba=False)
+                # Manually extract data ignoring styles
+                sheet = wb.active
+                data = []
+                for row in sheet.iter_rows(values_only=True):
+                    data.append(row)
+                
+                if data:
+                    # Creating DataFrame from raw values
+                    headers = data[0]
+                    df = pd.DataFrame(data[1:], columns=headers)
+                wb.close()
         except Exception as e:
-            # Fallback for IHIP Excel files with corrupted fill styles
-            if "Fill" in str(e) or "openpyxl" in str(e).lower():
-                try:
-                    file.seek(0) # Reset file pointer
-                    wb = openpyxl.load_workbook(file, read_only=True, data_only=True)
-                    ws = wb.active
-                    data = list(ws.values)
-                    if data:
-                        df = pd.DataFrame(data[1:], columns=data[0])
-                    else:
-                        st.error(f"The file {form_name} appears to be empty.")
-                        return pd.DataFrame()
-                except Exception as fallback_e:
-                    st.error(f"Error reading {form_name} (Fallback failed): {str(fallback_e)}")
-                    return pd.DataFrame()
-            else:
-                st.error(f"Error reading {form_name}: {str(e)}")
-                return pd.DataFrame()
+            st.error(f"Critical error reading {form_name}: {str(e)}")
+            return pd.DataFrame()
         
         if df.empty:
             return pd.DataFrame()
 
-        # Clean column names
+        # Clean column names by removing extra spaces and converting to string
         df.columns = [" ".join(str(c).split()) for c in df.columns]
         
         def find_col(k):
-            return next((c for c in df.columns if k.lower() in c.lower()), None)
+            return next((c for c in df.columns if k.lower() in str(c).lower()), None)
             
         ward_col = find_col("ward")
         total_col = find_col("total")
         perc_col = find_col("%") 
         
         if not (ward_col and total_col and perc_col):
-            st.error(f"Required columns not found in {form_name}. Available columns: {', '.join(df.columns)}")
+            # If standard columns not found, show helpful message
+            available = [str(c) for c in df.columns]
+            st.warning(f"Could not find required columns in {form_name}. Found: {', '.join(available)}")
             return pd.DataFrame()
             
         df = df[[ward_col, total_col, perc_col]].copy()
@@ -228,11 +229,13 @@ with tab2:
             perc_col: "% Reporting"
         }, inplace=True)
         
+        # Convert values to numbers safely
         for col in ["Total Units", "% Reporting"]:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
         df["ward"] = df["ward"].astype(str).str.strip()
-        return df[df["ward"] != "nan"]
+        # Filter out empty or null ward rows
+        return df[df["ward"].str.lower() != "nan"].dropna(subset=["ward"])
 
     if sum_s and sum_p and sum_l:
         ds = process_summary_file(sum_s, "S-Form")
@@ -240,8 +243,9 @@ with tab2:
         dl = process_summary_file(sum_l, "L-Form")
         
         if ds.empty or dp.empty or dl.empty:
-            st.warning("Data processing failed. Please check the error messages above.")
+            st.warning("Could not process one or more files. Please check the columns in your Excel files.")
         else:
+            # Merging the cleaned dataframes
             master = pd.merge(ds, dp, on="ward", how="outer", suffixes=("_S", "_P"))
             master = pd.merge(master, dl, on="ward", how="outer").fillna(0)
             master.rename(columns={"Total Units": "Total Units_L", "% Reporting": "% Reporting_L"}, inplace=True)
@@ -283,15 +287,15 @@ with tab2:
                         if header:
                             worksheet.write(2, col_num, header, header_fmt)
 
-                st.success("File generated successfully! Click the button below to download.")
+                st.success("Analysis complete. Download ready.")
                 st.download_button(
                     label="📥 Download Summary Excel",
                     data=sum_buf.getvalue(),
                     file_name="Reporting_Summary.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="download_summary_btn"
+                    key="download_summary_btn_final"
                 )
             except Exception as e:
-                st.error(f"Error generating Excel file: {str(e)}")
+                st.error(f"Export Error: {str(e)}")
     else:
-        st.info("Please upload all three (S, P, L) summary files.")
+        st.info("Upload all three files to proceed.")
