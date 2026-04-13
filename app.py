@@ -6,12 +6,15 @@ from io import BytesIO
 st.set_page_config(page_title="IHIP Defaulter Tool", layout="wide")
 st.title("Daily IHIP Defaulter Analysis")
 
-# ---------------- UPLOADS ----------------
+# =========================================================
+# ---------------- OUTPUT 1 & 2 INPUTS --------------------
+# =========================================================
+
 col1, col2, col3 = st.columns(3)
 
-s_file = col1.file_uploader("S-Form", type=["xlsx"])
-p_file = col2.file_uploader("P-Form", type=["xlsx"])
-l_file = col3.file_uploader("L-Form", type=["xlsx"])
+s_file = col1.file_uploader("S-Form (Output 1/2)", type=["xlsx"])
+p_file = col2.file_uploader("P-Form (Output 1/2)", type=["xlsx"])
+l_file = col3.file_uploader("L-Form (Output 1/2)", type=["xlsx"])
 
 st.markdown("---")
 
@@ -24,14 +27,27 @@ report_datetime = st.text_input("Enter Full Date-Time", "")
 st.markdown("---")
 
 # =========================================================
-# ---------------- PROCESS FUNCTION -----------------------
+# ---------------- OUTPUT 3 INPUTS (NEW) ------------------
+# =========================================================
+
+st.subheader("📊 Output 3 Inputs (Ward Comparison)")
+
+col4, col5, col6 = st.columns(3)
+
+s_file_3 = col4.file_uploader("S-Form (Output 3)", type=["xlsx"])
+p_file_3 = col5.file_uploader("P-Form (Output 3)", type=["xlsx"])
+l_file_3 = col6.file_uploader("L-Form (Output 3)", type=["xlsx"])
+
+output3_date = st.text_input("Enter Output 3 Date (DD-MM-YYYY)", "13-04-2026")
+
+st.markdown("---")
+
+# =========================================================
+# ---------------- PROCESS FUNCTION (O1/O2) ---------------
 # =========================================================
 
 def process_file(file, form):
-    try:
-        raw = pd.read_excel(file, engine="openpyxl", header=None)
-    except Exception:
-        raw = pd.read_excel(file)
+    raw = pd.read_excel(file, header=None)
 
     header_row = 0
     for i, row in raw.iterrows():
@@ -39,7 +55,7 @@ def process_file(file, form):
             header_row = i
             break
 
-    df = pd.read_excel(file, skiprows=header_row, engine="openpyxl")
+    df = pd.read_excel(file, skiprows=header_row)
     df.columns = [str(c).strip() for c in df.columns]
 
     def find_col(k):
@@ -115,15 +131,15 @@ if dfs:
     # ---------------- OUTPUT 1 EXCEL ----------------
     def generate_output1_excel(df):
         output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
             df.to_excel(writer, index=False, startrow=2)
-            ws = writer.sheets['Sheet1']
+            ws = writer.sheets["Sheet1"]
 
-            ws.merge_cells('A1:G1')
-            ws['A1'] = "IHIP Defaulter Report"
+            ws.merge_cells("A1:G1")
+            ws["A1"] = "IHIP Defaulter Report"
 
-            ws.merge_cells('A2:G2')
-            ws['A2'] = report_date
+            ws.merge_cells("A2:G2")
+            ws["A2"] = report_date
 
         return output.getvalue()
 
@@ -190,7 +206,7 @@ if dfs:
 
     merged.drop(columns=["key"], inplace=True)
 
-    merged["REMARK"] = ""   # ✅ FIX RESTORED
+    merged["REMARK"] = ""
 
     out2 = merged.copy()
     out2.insert(0, "Sr No", range(1, len(out2) + 1))
@@ -200,15 +216,15 @@ if dfs:
 
     def generate_output2_excel(df):
         output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
             df.to_excel(writer, index=False, startrow=2)
-            ws = writer.sheets['Sheet1']
+            ws = writer.sheets["Sheet1"]
 
-            ws.merge_cells('A1:J1')
-            ws['A1'] = "IHIP Not Reporting Units Report"
+            ws.merge_cells("A1:J1")
+            ws["A1"] = "IHIP Not Reporting Units Report"
 
-            ws.merge_cells('A2:J2')
-            ws['A2'] = report_datetime
+            ws.merge_cells("A2:J2")
+            ws["A2"] = report_datetime
 
         return output.getvalue()
 
@@ -224,9 +240,6 @@ if dfs:
 
 st.markdown("---")
 st.subheader("Ward Wise Comparison (S / P / L)")
-
-output3_date = st.text_input("Enter Output 3 Date (DD-MM-YYYY)", "13-04-2026")
-
 
 def process_simple(file, prefix):
     df = pd.read_excel(file)
@@ -247,11 +260,11 @@ def process_simple(file, prefix):
     return temp.reset_index(drop=True)
 
 
-if s_file and p_file and l_file:
+if s_file_3 and p_file_3 and l_file_3:
 
-    s_df = process_simple(s_file, "S")
-    p_df = process_simple(p_file, "P")
-    l_df = process_simple(l_file, "L")
+    s_df = process_simple(s_file_3, "S")
+    p_df = process_simple(p_file_3, "P")
+    l_df = process_simple(l_file_3, "L")
 
     max_len = max(len(s_df), len(p_df), len(l_df))
 
@@ -293,4 +306,4 @@ if s_file and p_file and l_file:
     )
 
 else:
-    st.info("Upload S, P, L forms to generate Output 3")
+    st.info("Upload S/P/L files for Output 3")
