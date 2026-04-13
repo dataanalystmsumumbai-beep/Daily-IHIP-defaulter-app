@@ -6,24 +6,21 @@ from io import BytesIO
 # APP CONFIG
 # =========================================================
 
-st.set_page_config(page_title="IHIP Defaulter Tool", layout="wide")
+st.set_page_config(page_title="IHIP Tool", layout="wide")
 st.title("Daily IHIP Defaulter Analysis")
 
 # =========================================================
-# SAFE EXCEL READER (FIX ALL OPENPYXL ERRORS)
+# SAFE EXCEL READER (NO OPENPYXL CRASH)
 # =========================================================
 
 def safe_read_excel(file):
     try:
         return pd.read_excel(file, engine="openpyxl")
     except:
-        try:
-            return pd.read_excel(file, engine="xlrd")
-        except:
-            return pd.read_excel(file)
+        return pd.read_excel(file)
 
 # =========================================================
-# INPUTS (OUTPUT 1 & 2)
+# FILE UPLOADS
 # =========================================================
 
 col1, col2, col3 = st.columns(3)
@@ -35,55 +32,59 @@ l_file = col3.file_uploader("L Form", type=["xlsx"])
 st.markdown("---")
 
 # =========================================================
-# PROCESS OUTPUT 1 & 2
+# OUTPUT 1 + OUTPUT 2 (SIMPLIFIED + SAFE)
 # =========================================================
 
-def process_file(file, form):
+def process_basic(file, form):
 
     df = safe_read_excel(file)
     df.columns = [str(c).strip() for c in df.columns]
 
     ward_col = next((c for c in df.columns if "ward" in c.lower()), None)
-    name_col = next((c for c in df.columns if "facility" in c.lower()), None)
-    subtype_col = next((c for c in df.columns if "sub" in c.lower()), None)
-
-    if not ward_col:
-        df["WARD"] = "Not Mentioned"
-    else:
-        df["WARD"] = df[ward_col]
+    facility_col = next((c for c in df.columns if "facility" in c.lower()), None)
 
     out = pd.DataFrame()
-    out["WARD"] = df["WARD"]
-    out["Facility Name"] = df[name_col] if name_col else ""
+
+    if ward_col:
+        out["WARD"] = df[ward_col]
+    else:
+        out["WARD"] = "Not Mentioned"
+
+    if facility_col:
+        out["Facility Name"] = df[facility_col]
+    else:
+        out["Facility Name"] = ""
+
     out["Form Type"] = form
-    out["Category"] = df[subtype_col] if subtype_col else ""
     out["REMARK"] = ""
 
     return out
 
 # =========================================================
-# OUTPUT 1 & 2
+# MAIN DATA BUILD
 # =========================================================
 
 dfs = []
 
 if s_file:
-    dfs.append(process_file(s_file, "S"))
+    dfs.append(process_basic(s_file, "S"))
 if p_file:
-    dfs.append(process_file(p_file, "P"))
+    dfs.append(process_basic(p_file, "P"))
 if l_file:
-    dfs.append(process_file(l_file, "L"))
+    dfs.append(process_basic(l_file, "L"))
 
 if dfs:
 
     final_df = pd.concat(dfs, ignore_index=True)
 
+    # ================= OUTPUT 1 =================
     out1 = final_df.copy()
     out1.insert(0, "Sr No", range(1, len(out1) + 1))
 
     st.subheader("Output 1")
     st.dataframe(out1, use_container_width=True)
 
+    # ================= OUTPUT 2 =================
     out2 = final_df.copy()
     out2.insert(0, "Sr No", range(1, len(out2) + 1))
     out2["Contact"] = ""
@@ -94,11 +95,11 @@ if dfs:
     st.dataframe(out2, use_container_width=True)
 
 # =========================================================
-# OUTPUT 3 (FINAL LOGIC)
+# OUTPUT 3 (WARD COMPARISON - FINAL STABLE)
 # =========================================================
 
 st.markdown("---")
-st.subheader("Output 3 - Ward Wise Reporting")
+st.subheader("Output 3 - Ward Wise Comparison")
 
 def process_o3(file, prefix):
 
@@ -108,14 +109,12 @@ def process_o3(file, prefix):
     ward_col = "A D M I N I S T R A T I V E W A R D"
     total_col = next((c for c in df.columns if "total reporting" in c.lower()), None)
     percent_col = next((c for c in df.columns if "% of average" in c.lower()), None)
-    never_col = next((c for c in df.columns if "never reported" in c.lower()), None)
 
     out = pd.DataFrame()
 
     out[f"{prefix}_Ward"] = df[ward_col] if ward_col in df.columns else ""
     out[f"{prefix}_Total"] = df[total_col] if total_col else ""
     out[f"{prefix}_%"] = df[percent_col] if percent_col else ""
-    out[f"{prefix}_Never"] = df[never_col] if never_col else 0
 
     return out
 
@@ -138,11 +137,10 @@ if s_file and p_file and l_file:
 
     output3.insert(0, "Sr No", range(1, len(output3) + 1))
 
+    st.subheader("Output 3")
     st.dataframe(output3, use_container_width=True)
 
-    # =====================================================
-    # DOWNLOAD OUTPUT 3
-    # =====================================================
+    # ================= DOWNLOAD =================
 
     def to_excel(df):
         output = BytesIO()
