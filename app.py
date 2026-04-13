@@ -29,6 +29,7 @@ staff_input = st.text_area("Enter Staff Names (comma separated)", placeholder="A
 
 st.markdown("---")
 
+
 def process_file(file, form_name):
     raw = pd.read_excel(file, header=None)
 
@@ -119,7 +120,7 @@ if l_file:
     form_counts["L FORM"] = count_l
 
 
-# 📊 Category Count
+# 📊 Form-wise Defaulter Category Count
 if form_counts:
     st.markdown("## 📊 Form-wise Defaulter Category Count")
 
@@ -141,18 +142,17 @@ if dfs:
     csv = final_df.to_csv(index=False).encode('utf-8')
     st.download_button("Download CSV", csv, "combined_defaulters.csv", "text/csv")
 
-
     # 🔥 Output 2 (Contact + Staff)
     if contact_file:
         contact_df = pd.read_excel(contact_file)
-
         contact_df.columns = [str(c).strip() for c in contact_df.columns]
 
         name_col_c = next((c for c in contact_df.columns if 'facility' in c.lower()), None)
         person_col = next((c for c in contact_df.columns if 'contact' in c.lower()), None)
         mobile_col = next((c for c in contact_df.columns if 'mobile' in c.lower()), None)
 
-        if name_col_c:
+        if name_col_c and person_col and mobile_col:
+
             merged = final_df.merge(
                 contact_df[[name_col_c, person_col, mobile_col]],
                 left_on="Facility Name",
@@ -160,33 +160,47 @@ if dfs:
                 how="left"
             )
 
-            merged = merged.drop(columns=[name_col_c])
+            merged.drop(columns=[name_col_c], inplace=True)
 
             merged.rename(columns={
                 person_col: "Contact Person Name",
                 mobile_col: "Mobile Number"
             }, inplace=True)
 
-            # 🔥 Assigned Staff Logic (Equal Block)
+            # Assigned Staff Logic
             if staff_input:
                 staff_list = [s.strip() for s in staff_input.split(",") if s.strip()]
-
                 n = len(merged)
                 k = len(staff_list)
 
                 if k > 0:
                     block_size = math.ceil(n / k)
                     assigned = []
-
                     for staff in staff_list:
                         assigned.extend([staff] * block_size)
-
                     merged["Assigned Staff"] = assigned[:n]
                 else:
                     merged["Assigned Staff"] = ""
-
             else:
                 merged["Assigned Staff"] = ""
+
+            # Fill missing contacts
+            merged["Contact Person Name"].fillna("Not Available", inplace=True)
+            merged["Mobile Number"].fillna("Not Available", inplace=True)
+
+            # 🔥 FINAL COLUMN ORDER FIX
+            final_columns = [
+                "WARD",
+                "Facility Name",
+                "Form Type",
+                "Category",
+                "REMARK",
+                "Contact Person Name",
+                "Mobile Number",
+                "Assigned Staff"
+            ]
+
+            merged = merged[final_columns]
 
             st.subheader("Defaulter List with Contact & Staff")
             st.dataframe(merged, use_container_width=True, hide_index=True)
