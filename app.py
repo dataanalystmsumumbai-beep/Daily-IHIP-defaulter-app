@@ -19,6 +19,7 @@ l_file = col3.file_uploader(" ", type=["xlsx"], key="l")
 
 st.markdown("---")
 
+
 def process_file(file, form_name):
     raw = pd.read_excel(file, header=None)
 
@@ -45,7 +46,7 @@ def process_file(file, form_name):
 
     df[report_col] = pd.to_numeric(df[report_col], errors='coerce')
 
-    # Defaulters (0 reporting)
+    # Defaulters
     defaulters = df[df[report_col].fillna(0).astype(float) == 0.0].copy()
 
     # Category mapping
@@ -74,9 +75,20 @@ def process_file(file, form_name):
         "PRIVATE": private_count
     }
 
-    # Final table format
     result = pd.DataFrame()
-    result["WARD"] = defaulters[ward_col]
+
+    # ✅ Ward handling (fixed)
+    if ward_col:
+        result["WARD"] = (
+            defaulters[ward_col]
+            .fillna("Not Mentioned")
+            .astype(str)
+            .str.strip()
+            .replace("", "Not Mentioned")
+        )
+    else:
+        result["WARD"] = "Not Mentioned"
+
     result["Facility Name"] = defaulters[name_col]
     result["Form Type"] = form_name
     result["Category"] = defaulters["Category"]
@@ -103,6 +115,7 @@ if l_file:
     dfs.append(df_l)
     form_counts["L FORM"] = count_l
 
+
 # 📊 Form-wise Defaulter Category Count
 if form_counts:
     st.markdown("## 📊 Form-wise Defaulter Category Count")
@@ -113,9 +126,11 @@ if form_counts:
         col1.metric("PUBLIC", counts["PUBLIC"])
         col2.metric("PRIVATE", counts["PRIVATE"])
 
+
 # 📋 Combined Defaulter List
 if dfs:
     final_df = pd.concat(dfs, ignore_index=True)
+
     final_df = final_df.sort_values(["WARD", "Facility Name"])
 
     st.subheader("Defaulter Facilities Combined List")
