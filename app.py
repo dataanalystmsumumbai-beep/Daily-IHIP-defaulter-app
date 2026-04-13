@@ -19,7 +19,16 @@ staff_input = st.text_input("Enter Staff Names (comma separated) i.e. A,B,C")
 
 # Manual Inputs
 report_date = st.text_input("Enter Date (DD-MM-YYYY)", "13-04-2026")
-report_datetime = st.text_input("Enter Full Date-Time (e.g. monday 13-04-2026 till 04.04pm)")
+report_time = st.text_input("Enter Time Only (e.g. 04.05pm)")
+import datetime
+
+day_name = ""
+try:
+    day_name = datetime.datetime.strptime(report_date, "%d-%m-%Y").strftime("%A")
+except:
+    day_name = ""
+    report_datetime = f"{day_name} {report_date} till {report_time}"
+    
 
 st.markdown("---")
 
