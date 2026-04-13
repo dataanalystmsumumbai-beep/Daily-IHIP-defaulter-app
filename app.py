@@ -164,7 +164,7 @@ with tab1:
         st.download_button("Download Output 2", generate_output2_excel(out2, report_datetime), f"IHIP Defaulter List of S, P & L Form of _{report_datetime}.xlsx")
 
 # ----------------------------------------------------------------
-# TAB 2: CONSOLIDATED REPORTING SUMMARY (Syntax Bug Fix)
+# TAB 2: CONSOLIDATED REPORTING SUMMARY (Clean Version)
 # ----------------------------------------------------------------
 with tab2:
     st.title("Reporting Summary Status")
@@ -184,6 +184,7 @@ with tab2:
         except Exception:
             return pd.DataFrame()
         
+        # Clean column names
         df.columns = [" ".join(str(c).split()) for c in df.columns]
         
         def find_col(k):
@@ -198,6 +199,8 @@ with tab2:
             return pd.DataFrame()
             
         df = df[[ward_col, total_col, perc_col, never_col]].copy()
+        
+        # Column Renaming
         df.rename(columns={
             ward_col: "ward", 
             total_col: "Total Reporting Units",
@@ -205,14 +208,15 @@ with tab2:
             never_col: "Never Reported Reporting Units"
         }, inplace=True)
         
-        # --- FIXED SYNTAX ERROR HERE ---
-        c1 = "Total Reporting Units"
-        c2 = "% Of Average Reporting Units"
-        c3 = "Never Reported Reporting Units"
+        # Numeric conversion with safe list to avoid SyntaxError
+        numeric_cols = [
+            "Total Reporting Units", 
+            "% Of Average Reporting Units", 
+            "Never Reported Reporting Units"
+        ]
         
-        for col in [c1, c2, c3]:
+        for col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-        # -------------------------------
         
         df["ward"] = df["ward"].astype(str).str.strip()
         return df[df["ward"] != "nan"]
@@ -223,8 +227,10 @@ with tab2:
         dl = process_summary_file(sum_l)
         
         if not ds.empty and not dp.empty and not dl.empty:
+            # Merging S, P and L data
             master = pd.merge(ds, dp, on="ward", how="outer", suffixes=("_S", "_P"))
             master = pd.merge(master, dl, on="ward", how="outer").fillna(0)
+            
             master.rename(columns={
                 "Total Reporting Units": "Total Reporting Units_L",
                 "% Of Average Reporting Units": "% Of Average Reporting Units_L",
@@ -233,6 +239,7 @@ with tab2:
             
             master = master.sort_values("ward")
             
+            # Grand Total Calculation
             total_row = {"ward": "Total"}
             for sfx in ["_S", "_P", "_L"]:
                 total_row[f"Total Reporting Units{sfx}"] = master[f"Total Reporting Units{sfx}"].sum()
@@ -240,8 +247,10 @@ with tab2:
                 total_row[f"Never Reported Reporting Units{sfx}"] = master[f"Never Reported Reporting Units{sfx}"].sum()
             
             final_df_sum = pd.concat([master, pd.DataFrame([total_row])], ignore_index=True)
-            final_df_sum["Blank1"] = ""; final_df_sum["Blank2"] = ""
+            final_df_sum["Blank1"] = ""
+            final_df_sum["Blank2"] = ""
             
+            # Final Column Sequencing
             cols_order = [
                 "ward",
                 "Total Reporting Units_S", "% Of Average Reporting Units_S", "Never Reported Reporting Units_S", "Blank1",
@@ -253,6 +262,7 @@ with tab2:
             st.subheader("Summary Preview")
             st.dataframe(export_df, use_container_width=True)
             
+            # Excel Export Logic
             sum_buf = BytesIO()
             with pd.ExcelWriter(sum_buf, engine='xlsxwriter') as writer:
                 export_df.to_excel(writer, index=False, sheet_name='Summary')
@@ -264,4 +274,4 @@ with tab2:
 
             st.download_button("Download Summary Excel", sum_buf.getvalue(), "Reporting_Summary.xlsx")
     else:
-        st.info("Upload all three summary files for the second tool.")
+        st.info("Upload files to generate reporting summary.")
