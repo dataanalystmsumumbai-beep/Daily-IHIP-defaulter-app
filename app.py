@@ -6,11 +6,11 @@ from io import BytesIO
 # APP SETUP
 # =====================================================
 
-st.set_page_config(page_title="IHIP Defaulter Tool", layout="wide")
+st.set_page_config(page_title="IHIP Tool", layout="wide")
 st.title("Daily IHIP Defaulter Analysis")
 
 # =====================================================
-# SAFE EXCEL READER (FIX FOR OPENPYXL ISSUES)
+# SAFE READER
 # =====================================================
 
 def safe_read_excel(file):
@@ -20,74 +20,64 @@ def safe_read_excel(file):
         return pd.read_excel(file)
 
 # =====================================================
-# OUTPUT 1 & 2 INPUTS
+# ================= OUTPUT 1 & 2 ======================
 # =====================================================
+
+st.header("📊 Output 1 & 2 Input")
 
 col1, col2, col3 = st.columns(3)
 
-s_file = col1.file_uploader("S Form (O1/O2)", type=["xlsx"])
-p_file = col2.file_uploader("P Form (O1/O2)", type=["xlsx"])
-l_file = col3.file_uploader("L Form (O1/O2)", type=["xlsx"])
-
-st.markdown("---")
-
-# =====================================================
-# OUTPUT 1 & 2 PROCESSING
-# =====================================================
+s1 = col1.file_uploader("S Form (O1/O2)", type=["xlsx"])
+p1 = col2.file_uploader("P Form (O1/O2)", type=["xlsx"])
+l1 = col3.file_uploader("L Form (O1/O2)", type=["xlsx"])
 
 def process_basic(file, form):
 
     df = safe_read_excel(file)
     df.columns = [str(c).strip() for c in df.columns]
 
-    ward_col = next((c for c in df.columns if "ward" in c.lower()), None)
-    facility_col = next((c for c in df.columns if "facility" in c.lower()), None)
+    ward = next((c for c in df.columns if "ward" in c.lower()), None)
+    facility = next((c for c in df.columns if "facility" in c.lower()), None)
 
     out = pd.DataFrame()
-
-    out["WARD"] = df[ward_col] if ward_col else "Not Mentioned"
-    out["Facility Name"] = df[facility_col] if facility_col else ""
+    out["WARD"] = df[ward] if ward else "Not Mentioned"
+    out["Facility Name"] = df[facility] if facility else ""
     out["Form Type"] = form
-    out["REMARK"] = ""
 
     return out
 
-dfs = []
+if s1 and p1 and l1:
 
-if s_file:
-    dfs.append(process_basic(s_file, "S"))
-if p_file:
-    dfs.append(process_basic(p_file, "P"))
-if l_file:
-    dfs.append(process_basic(l_file, "L"))
+    dfs = [
+        process_basic(s1, "S"),
+        process_basic(p1, "P"),
+        process_basic(l1, "L")
+    ]
 
-if dfs:
-
-    final_df = pd.concat(dfs, ignore_index=True)
-
-    # OUTPUT 1
-    out1 = final_df.copy()
-    out1.insert(0, "Sr No", range(1, len(out1) + 1))
+    final = pd.concat(dfs, ignore_index=True)
 
     st.subheader("Output 1")
-    st.dataframe(out1, use_container_width=True)
+    st.dataframe(final)
 
-    # OUTPUT 2
-    out2 = final_df.copy()
-    out2.insert(0, "Sr No", range(1, len(out2) + 1))
+    out2 = final.copy()
     out2["Contact"] = ""
     out2["Mobile"] = ""
-    out2["Assigned Staff"] = ""
 
     st.subheader("Output 2")
-    st.dataframe(out2, use_container_width=True)
+    st.dataframe(out2)
 
 # =====================================================
-# OUTPUT 3 (FULL CORRECT LOGIC)
+# ================= OUTPUT 3 (SEPARATE INPUT) =========
 # =====================================================
 
 st.markdown("---")
-st.subheader("Output 3 - Ward Wise Reporting Analysis")
+st.header("📊 Output 3 Input (Reporting %)")
+
+col4, col5, col6 = st.columns(3)
+
+s2 = col4.file_uploader("S Form (O3)", type=["xlsx"])
+p2 = col5.file_uploader("P Form (O3)", type=["xlsx"])
+l2 = col6.file_uploader("L Form (O3)", type=["xlsx"])
 
 def process_o3(file, prefix):
 
@@ -95,7 +85,6 @@ def process_o3(file, prefix):
     df.columns = [str(c).strip() for c in df.columns]
 
     ward_col = "A D M I N I S T R A T I V E W A R D"
-
     total_col = next((c for c in df.columns if "total reporting" in c.lower()), None)
     percent_col = next((c for c in df.columns if "% of average" in c.lower()), None)
     never_col = next((c for c in df.columns if "never reported reporting units for selected period" in c.lower()), None)
@@ -103,25 +92,27 @@ def process_o3(file, prefix):
     out = pd.DataFrame()
 
     out[f"{prefix}_Ward"] = df[ward_col] if ward_col in df.columns else ""
-    out[f"{prefix}_Total Reporting Units"] = df[total_col] if total_col else ""
-    out[f"{prefix}_% Of Average Reporting Units"] = df[percent_col] if percent_col else ""
-    out[f"{prefix}_Never Reported"] = df[never_col] if never_col else 0
+    out[f"{prefix}_Total"] = df[total_col] if total_col else ""
+    out[f"{prefix}_%"] = df[percent_col] if percent_col else ""
+    out[f"{prefix}_Never"] = df[never_col] if never_col else 0
 
     return out
 
-if s_file and p_file and l_file:
+if s2 and p2 and l2:
 
-    s_df = process_o3(s_file, "S")
-    p_df = process_o3(p_file, "P")
-    l_df = process_o3(l_file, "L")
+    s_df = process_o3(s2, "S")
+    p_df = process_o3(p2, "P")
+    l_df = process_o3(l2, "L")
 
-    # COUNT CALCULATION (DISPLAY ONLY)
+    # SUM DISPLAY ONLY
     def safe_sum(x):
         return pd.to_numeric(x, errors="coerce").fillna(0).sum()
 
-    s_count = safe_sum(s_df.filter(like="Never"))
-    p_count = safe_sum(p_df.filter(like="Never"))
-    l_count = safe_sum(l_df.filter(like="Never"))
+    colA, colB, colC = st.columns(3)
+
+    colA.metric("S Non Reporting", int(safe_sum(s_df.iloc[:, -1])))
+    colB.metric("P Non Reporting", int(safe_sum(p_df.iloc[:, -1])))
+    colC.metric("L Non Reporting", int(safe_sum(l_df.iloc[:, -1])))
 
     max_len = max(len(s_df), len(p_df), len(l_df))
 
@@ -134,23 +125,10 @@ if s_file and p_file and l_file:
 
     output3 = pd.concat([s_df, blank1, p_df, blank2, l_df], axis=1)
 
-    output3.insert(0, "Sr No", range(1, len(output3) + 1))
-
     st.subheader("Output 3")
-    st.dataframe(output3, use_container_width=True)
+    st.dataframe(output3)
 
-    # ================= COUNTS (DISPLAY ONLY) =================
-
-    st.markdown("### Total Non Reporting Facility Count")
-
-    colA, colB, colC = st.columns(3)
-
-    colA.metric("S File", int(s_count))
-    colB.metric("P File", int(p_count))
-    colC.metric("L File", int(l_count))
-
-    # ================= DOWNLOAD =================
-
+    # DOWNLOAD
     def to_excel(df):
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -158,7 +136,7 @@ if s_file and p_file and l_file:
         return output.getvalue()
 
     st.download_button(
-        "Download Output 3 Excel",
+        "Download Output 3",
         to_excel(output3),
         "output3.xlsx"
     )
