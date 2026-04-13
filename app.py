@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from io import BytesIO
 
 st.set_page_config(page_title="IHIP Defaulter Tool", layout="wide")
 st.title("Daily IHIP Defaulter Analysis")
@@ -15,6 +16,12 @@ st.markdown("---")
 
 contact_file = st.file_uploader("Upload Contact File", type=["xlsx"])
 staff_input = st.text_input("Enter Staff Names (comma separated)")
+
+# Manual Inputs
+report_date = st.text_input("Enter Date (DD-MM-YYYY)", "13-04-2026")
+report_datetime = st.text_input("Enter Full Date-Time (e.g. Monday 13-04-2026 till 04:04 PM)")
+
+st.markdown("---")
 
 # ---------------- PROCESS ----------------
 def process_file(file, form):
@@ -41,7 +48,6 @@ def process_file(file, form):
         return pd.DataFrame()
 
     df[report] = pd.to_numeric(df[report], errors="coerce")
-
     df = df[df[report].fillna(0) == 0].copy()
 
     category_map = {
@@ -82,24 +88,19 @@ if l_file:
 if dfs:
     final_df = pd.concat(dfs, ignore_index=True)
 
-    # SORT BY WARD
+    # SORT
     final_df["WARD"] = final_df["WARD"].astype(str)
     final_df = final_df.sort_values(["WARD", "Facility Name"])
 
     # ---------------- OUTPUT 1 ----------------
-    out1 = final_df[["WARD","Facility Name","Form Type","Category","REMARK"]]
+    out1 = final_df.copy()
     out1.insert(0, "Sr No", range(1, len(out1)+1))
 
-    st.subheader("Output 1: Defaulter List")
+    st.subheader("Output 1")
     st.dataframe(out1, use_container_width=True)
-
-    csv1 = out1.to_csv(index=False).encode("utf-8")
-    st.download_button("Download Output 1", csv1, "output1.csv", "text/csv")
 
     # ---------------- OUTPUT 2 ----------------
     merged = final_df.copy()
-
-    # CLEAN MATCH KEY
     merged["key"] = merged["Facility Name"].astype(str).str.strip().str.lower()
 
     if contact_file:
@@ -124,7 +125,6 @@ if dfs:
                 mobile: "Mobile Number"
             }, inplace=True)
 
-    # ensure columns
     for col in ["Contact Person Name", "Mobile Number"]:
         if col not in merged.columns:
             merged[col] = ""
@@ -132,18 +132,16 @@ if dfs:
     merged["Contact Person Name"] = merged["Contact Person Name"].astype(str).replace(["nan",""], "Not Available")
     merged["Mobile Number"] = merged["Mobile Number"].astype(str).replace(["nan",""], "Not Available")
 
-    # -------- ASSIGNED STAFF (BLOCK LOGIC) --------
+    # ASSIGNED STAFF
     if staff_input:
         staff = [s.strip() for s in staff_input.split(",") if s.strip()]
         n = len(merged)
         k = len(staff)
 
         assigned = []
-
         if k > 0:
             base = n // k
             extra = n % k
-
             for i, s in enumerate(staff):
                 count = base
                 if i == k - 1:
@@ -156,23 +154,53 @@ if dfs:
 
     merged.drop(columns=["key"], inplace=True)
 
-    cols = [
-        "WARD","Facility Name","Form Type","Category","REMARK",
-        "Contact Person Name","Mobile Number","Assigned Staff"
-    ]
-
-    for c in cols:
-        if c not in merged.columns:
-            merged[c] = ""
-
-    out2 = merged[cols]
+    out2 = merged.copy()
     out2.insert(0, "Sr No", range(1, len(out2)+1))
 
-    st.subheader("Output 2: With Contact & Staff")
+    st.subheader("Output 2")
     st.dataframe(out2, use_container_width=True)
 
-    csv2 = out2.to_csv(index=False).encode("utf-8")
-    st.download_button("Download Output 2", csv2, "output2.csv", "text/csv")
+    # ---------------- EXCEL EXPORT ----------------
+    def generate_output1_excel(df):
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, startrow=2)
+            ws = writer.sheets['Sheet1']
+
+            ws.merge_cells('A1:F1')
+            ws['A1'] = "IHIP Defaulter"
+
+            ws.merge_cells('A2:F2')
+            ws['A2'] = report_date
+
+        return output.getvalue()
+
+    def generate_output2_excel(df):
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, startrow=2)
+            ws = writer.sheets['Sheet1']
+
+            ws.merge_cells('A1:I1')
+            ws['A1'] = "IHIP not reporting units"
+
+            ws.merge_cells('A2:I2')
+            ws['A2'] = report_datetime
+
+        return output.getvalue()
+
+    # DOWNLOAD BUTTONS
+    st.download_button(
+        "Download Output 1 Excel",
+        generate_output1_excel(out1),
+        "output1.xlsx"
+    )
+
+    st.download_button(
+        "Download Output 2 Excel",
+        generate_output2_excel(out2),
+        "output2.xlsx"
+    )
 
 else:
     st.info("Upload files to proceed")
