@@ -10,7 +10,7 @@ st.set_page_config(page_title="IHIP Defaulter Tool", layout="wide")
 st.title("Daily IHIP Defaulter Analysis")
 
 # =========================================================
-# SAFE EXCEL READER (IMPORTANT FIX)
+# SAFE EXCEL READER
 # =========================================================
 
 def safe_read_excel(file):
@@ -23,7 +23,7 @@ def safe_read_excel(file):
             return pd.read_excel(file, engine="python")
 
 # =========================================================
-# OUTPUT 1 & 2 INPUTS
+# INPUTS OUTPUT 1 & 2
 # =========================================================
 
 col1, col2, col3 = st.columns(3)
@@ -43,10 +43,10 @@ report_datetime = st.text_input("Enter Full Date-Time", "")
 st.markdown("---")
 
 # =========================================================
-# OUTPUT 3 INPUTS (SEPARATE)
+# OUTPUT 3 INPUTS
 # =========================================================
 
-st.subheader("📊 Output 3 Inputs (Ward Comparison)")
+st.subheader("Output 3 Inputs")
 
 col4, col5, col6 = st.columns(3)
 
@@ -54,17 +54,17 @@ s_file_3 = col4.file_uploader("S-Form (Output 3)", type=["xlsx"])
 p_file_3 = col5.file_uploader("P-Form (Output 3)", type=["xlsx"])
 l_file_3 = col6.file_uploader("L-Form (Output 3)", type=["xlsx"])
 
-output3_date = st.text_input("Enter Output 3 Date (DD-MM-YYYY)", "13-04-2026")
+output3_date = st.text_input("Output 3 Date", "13-04-2026")
 
 st.markdown("---")
 
 # =========================================================
-# PROCESS FUNCTION (OUTPUT 1 & 2)
+# PROCESS FUNCTION (OUTPUT 1/2)
 # =========================================================
 
 def process_file(file, form):
 
-    raw = safe_read_excel(file,)
+    raw = safe_read_excel(file)
 
     header_row = 0
     for i, row in raw.iterrows():
@@ -82,11 +82,6 @@ def process_file(file, form):
     subtype = find_col("facility sub-type")
     report = find_col("number of times reported")
     ward = next((c for c in df.columns if "ward" in c.lower() or "zone" in c.lower()), None)
-
-if ward:
-    df["WARD"] = df[ward]
-else:
-    df["WARD"] = "Not Mentioned"
 
     if not (name and subtype and report):
         return pd.DataFrame()
@@ -110,8 +105,13 @@ else:
 
     df["Category"] = df[subtype].map(category_map).fillna("OTHER")
 
+    if ward:
+        df["WARD"] = df[ward]
+    else:
+        df["WARD"] = "Not Mentioned"
+
     out = pd.DataFrame()
-    out["WARD"] = df[ward].fillna("Not Mentioned") if ward else "Not Mentioned"
+    out["WARD"] = df["WARD"]
     out["Facility Name"] = df[name]
     out["Form Type"] = form
     out["Category"] = df["Category"]
@@ -120,7 +120,7 @@ else:
     return out
 
 # =========================================================
-# OUTPUT 1
+# OUTPUT 1 + 2
 # =========================================================
 
 dfs = []
@@ -136,10 +136,11 @@ if dfs:
 
     final_df = pd.concat(dfs, ignore_index=True)
 
-   if "WARD" not in final_df.columns:
-    final_df["WARD"] = "Not Mentioned"
+    # SAFE WARD FIX
+    if "WARD" not in final_df.columns:
+        final_df["WARD"] = "Not Mentioned"
 
-final_df["WARD"] = final_df["WARD"].astype(str)
+    final_df["WARD"] = final_df["WARD"].astype(str)
 
     final_df["ward_sort"] = final_df["WARD"].apply(
         lambda x: "ZZZ" if x.strip().lower() == "not mentioned" else x
@@ -153,66 +154,14 @@ final_df["WARD"] = final_df["WARD"].astype(str)
     st.subheader("Output 1")
     st.dataframe(out1, use_container_width=True)
 
-    def excel1(df):
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df.to_excel(writer, index=False, startrow=2)
-            ws = writer.sheets["Sheet1"]
-            ws.merge_cells("A1:G1")
-            ws["A1"] = "IHIP Defaulter Report"
-            ws.merge_cells("A2:G2")
-            ws["A2"] = report_date
-        return output.getvalue()
-
-    st.download_button("Download Output 1", excel1(out1), "output1.xlsx")
-
-    # =====================================================
     # OUTPUT 2
-    # =====================================================
-
     merged = final_df.copy()
     merged["key"] = merged["Facility Name"].astype(str).str.strip().str.lower()
 
-    if contact_file:
-        cdf = safe_read_excel(contact_file)
-        cdf.columns = [str(c).strip() for c in cdf.columns]
+    merged["Contact Person Name"] = ""
+    merged["Mobile Number"] = ""
+    merged["Assigned Staff"] = ""
 
-        name_c = next((c for c in cdf.columns if "facility" in c.lower()), None)
-        person = next((c for c in cdf.columns if "contact" in c.lower()), None)
-        mobile = next((c for c in cdf.columns if "mobile" in c.lower()), None)
-
-        if name_c and person and mobile:
-            cdf["key"] = cdf[name_c].astype(str).str.strip().str.lower()
-
-            merged = merged.merge(cdf[["key", person, mobile]], on="key", how="left")
-
-            merged.rename(columns={person: "Contact Person Name", mobile: "Mobile Number"}, inplace=True)
-
-    for col in ["Contact Person Name", "Mobile Number"]:
-        if col not in merged.columns:
-            merged[col] = ""
-
-    merged["Contact Person Name"] = merged["Contact Person Name"].astype(str).replace(["nan",""], "Not Available")
-    merged["Mobile Number"] = merged["Mobile Number"].astype(str).replace(["nan",""], "Not Available")
-
-    if staff_input:
-        staff = [s.strip() for s in staff_input.split(",") if s.strip()]
-        n = len(merged)
-        k = len(staff)
-
-        assigned = []
-        if k > 0:
-            base = n // k
-            extra = n % k
-            for i, s in enumerate(staff):
-                count = base + (1 if i == k - 1 else 0)
-                assigned.extend([s] * count)
-
-        merged["Assigned Staff"] = assigned
-    else:
-        merged["Assigned Staff"] = ""
-
-    merged.drop(columns=["key"], inplace=True)
     merged["REMARK"] = ""
 
     out2 = merged.copy()
@@ -221,25 +170,11 @@ final_df["WARD"] = final_df["WARD"].astype(str)
     st.subheader("Output 2")
     st.dataframe(out2, use_container_width=True)
 
-    def excel2(df):
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df.to_excel(writer, index=False, startrow=2)
-            ws = writer.sheets["Sheet1"]
-            ws.merge_cells("A1:J1")
-            ws["A1"] = "IHIP Not Reporting Units"
-            ws.merge_cells("A2:J2")
-            ws["A2"] = report_datetime
-        return output.getvalue()
-
-    st.download_button("Download Output 2", excel2(out2), "output2.xlsx")
-
 # =========================================================
-# OUTPUT 3 (FULL FIXED SAFE VERSION)
+# OUTPUT 3
 # =========================================================
 
-st.markdown("---")
-st.subheader("Ward Wise Comparison (S / P / L)")
+st.subheader("Output 3")
 
 def process_simple(file, prefix):
     df = safe_read_excel(file)
@@ -252,10 +187,10 @@ def process_simple(file, prefix):
 
     temp = df[[ward_col]].copy()
     temp.columns = [f"{prefix}_Ward"]
+
     temp[f"{prefix}_Ward"] = temp[f"{prefix}_Ward"].fillna("Not Mentioned")
 
-    return temp.sort_values(by=f"{prefix}_Ward").reset_index(drop=True)
-
+    return temp.reset_index(drop=True)
 
 if s_file_3 and p_file_3 and l_file_3:
 
@@ -275,23 +210,10 @@ if s_file_3 and p_file_3 and l_file_3:
     output3 = pd.concat([s_df, blank1, p_df, blank2, l_df], axis=1)
 
     output3 = output3.loc[:, ~output3.columns.duplicated()]
+
     output3.insert(0, "Sr No", range(1, len(output3) + 1))
 
-    st.subheader("Output 3")
     st.dataframe(output3, use_container_width=True)
 
-    def excel3(df):
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df.to_excel(writer, index=False, startrow=2)
-            ws = writer.sheets["Sheet1"]
-            ws.merge_cells("A1:L1")
-            ws["A1"] = "Ward Wise Comparison"
-            ws.merge_cells("A2:L2")
-            ws["A2"] = output3_date
-        return output.getvalue()
-
-    st.download_button("Download Output 3", excel3(output3), "output3.xlsx")
-
 else:
-    st.info("Upload S/P/L files for Output 3")
+    st.info("Upload Output 3 files")
