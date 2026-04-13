@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 import datetime
+import openpyxl
 
 st.set_page_config(page_title="IHIP Defaulter & Summary Tool", layout="wide")
 
@@ -164,8 +165,10 @@ with tab1:
         st.download_button("Download Output 2", generate_output2_excel(out2, report_datetime), f"IHIP Defaulter List of S, P & L Form of _{report_datetime}.xlsx")
 
 # ----------------------------------------------------------------
-# TAB 2: CONSOLIDATED REPORTING SUMMARY (Final Fix)
+# TAB 2: CONSOLIDATED REPORTING SUMMARY (Style Error Fix & English Only)
 # ----------------------------------------------------------------
+import openpyxl # Make sure openpyxl is imported at the top of your app.py
+
 with tab2:
     st.title("Reporting Summary Status")
     
@@ -175,29 +178,47 @@ with tab2:
     sum_l = sc3.file_uploader("L-Form Summary", type=["csv", "xlsx"], key="l_sum")
 
     def process_summary_file(file, form_name):
+        df = pd.DataFrame()
         try:
             if file.name.lower().endswith('.csv'):
                 df = pd.read_csv(file)
             else:
-                with pd.ExcelFile(file) as xls:
-                    df = pd.read_excel(xls)
+                df = pd.read_excel(file)
         except Exception as e:
-            st.error(f"{form_name} फाईल वाचताना एरर: {str(e)}")
-            return pd.DataFrame()
+            # Fallback for IHIP Excel files with corrupted fill styles
+            if "Fill" in str(e) or "openpyxl" in str(e).lower():
+                try:
+                    file.seek(0) # Reset file pointer
+                    wb = openpyxl.load_workbook(file, read_only=True, data_only=True)
+                    ws = wb.active
+                    data = list(ws.values)
+                    if data:
+                        df = pd.DataFrame(data[1:], columns=data[0])
+                    else:
+                        st.error(f"The file {form_name} appears to be empty.")
+                        return pd.DataFrame()
+                except Exception as fallback_e:
+                    st.error(f"Error reading {form_name} (Fallback failed): {str(fallback_e)}")
+                    return pd.DataFrame()
+            else:
+                st.error(f"Error reading {form_name}: {str(e)}")
+                return pd.DataFrame()
         
-        # Spaces कमी करून कॉलमची नावे सेट करणे
+        if df.empty:
+            return pd.DataFrame()
+
+        # Clean column names
         df.columns = [" ".join(str(c).split()) for c in df.columns]
         
         def find_col(k):
             return next((c for c in df.columns if k.lower() in c.lower()), None)
             
-        # जुने कडक नियम काढून फक्त महत्त्वाचे शब्द शोधले आहेत
         ward_col = find_col("ward")
         total_col = find_col("total")
         perc_col = find_col("%") 
         
         if not (ward_col and total_col and perc_col):
-            st.error(f"{form_name} फाईलमध्ये योग्य कॉलम्स सापडले नाहीत. फाईलमध्ये हे कॉलम्स आहेत: {', '.join(df.columns)}")
+            st.error(f"Required columns not found in {form_name}. Available columns: {', '.join(df.columns)}")
             return pd.DataFrame()
             
         df = df[[ward_col, total_col, perc_col]].copy()
@@ -218,9 +239,8 @@ with tab2:
         dp = process_summary_file(sum_p, "P-Form")
         dl = process_summary_file(sum_l, "L-Form")
         
-        # जर कोणतीही फाईल रिकामी रिटर्न झाली असेल तर
         if ds.empty or dp.empty or dl.empty:
-            st.warning("डेटा प्रोसेस होऊ शकला नाही. कृपया वर आलेले लाल रंगाचे एरर मेसेजेस तपासा.")
+            st.warning("Data processing failed. Please check the error messages above.")
         else:
             master = pd.merge(ds, dp, on="ward", how="outer", suffixes=("_S", "_P"))
             master = pd.merge(master, dl, on="ward", how="outer").fillna(0)
@@ -263,8 +283,7 @@ with tab2:
                         if header:
                             worksheet.write(2, col_num, header, header_fmt)
 
-                # Download Button with unique key
-                st.success("फाईल तयार झाली आहे! खालील बटणावर क्लिक करून डाऊनलोड करा.")
+                st.success("File generated successfully! Click the button below to download.")
                 st.download_button(
                     label="📥 Download Summary Excel",
                     data=sum_buf.getvalue(),
@@ -273,6 +292,6 @@ with tab2:
                     key="download_summary_btn"
                 )
             except Exception as e:
-                st.error(f"Excel फाईल जनरेट करताना काहीतरी चूक झाली: {str(e)}")
+                st.error(f"Error generating Excel file: {str(e)}")
     else:
-        st.info("कृपया तिन्ही (S, P, L) समरी फाईल्स अपलोड करा.")
+        st.info("Please upload all three (S, P, L) summary files.")
