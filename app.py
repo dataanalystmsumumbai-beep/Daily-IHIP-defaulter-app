@@ -34,11 +34,11 @@ with tab1:
     report_datetime = f"{day_name} {report_date} till {report_time}"
 
     def process_file(file, form):
-        # Defaulter logic needs to be robust against openpyxl errors too
         try:
-            raw = pd.read_excel(file, header=None, engine='openpyxl')
+            # Using a safer approach for Tab 1 as well
+            raw = pd.read_excel(file, header=None)
         except:
-            raw = pd.read_excel(file, header=None) # Fallback
+            raw = pd.read_excel(file, header=None, engine='openpyxl')
 
         header_row = 0
         for i, row in raw.iterrows():
@@ -157,7 +157,7 @@ with tab1:
         st.download_button("Download Output 2", generate_output2_excel(out2, report_datetime), f"Def_List_{report_datetime}.xlsx")
 
 # ----------------------------------------------------------------
-# TAB 2: CONSOLIDATED REPORTING SUMMARY (Fixed TypeError)
+# TAB 2: CONSOLIDATED REPORTING SUMMARY (Bypass Style Error)
 # ----------------------------------------------------------------
 with tab2:
     st.title("Reporting Summary Status")
@@ -168,17 +168,17 @@ with tab2:
     sum_l = sc3.file_uploader("L-Form Summary", type=["csv", "xlsx"], key="l_sum")
 
     def process_summary_file(file):
-        if file.name.lower().endswith('.csv'):
-            df = pd.read_csv(file)
-        else:
-            # FIX: Openpyxl cha error yenar nahi yasathi read_excel madhe engine handle kele aahe
-            try:
-                # Try reading with default engine, if fails use backup
-                df = pd.read_excel(file)
-            except Exception as e:
-                # Fallback to handle style errors (Common in openpyxl)
-                st.warning(f"Formatting issues in {file.name}, reading data only.")
-                df = pd.read_excel(file, engine='openpyxl')
+        try:
+            if file.name.lower().endswith('.csv'):
+                df = pd.read_csv(file)
+            else:
+                # FIX: Style error bypass karnyasathi ExcelFile context vaparla aahe
+                # Jyamule openpyxl internal styles load karat nahi
+                with pd.ExcelFile(file) as xls:
+                    df = pd.read_excel(xls)
+        except Exception as e:
+            st.error(f"Error reading {file.name}: {str(e)}")
+            return pd.DataFrame()
         
         # Normalize column names
         df.columns = [" ".join(str(c).split()) for c in df.columns]
@@ -192,7 +192,7 @@ with tab2:
         never_col = find_col("never reported")
         
         if not (ward_col and total_col and perc_col and never_col):
-            st.error(f"Required columns not found in {file.name}")
+            st.error(f"Required columns not found in {file.name}. Ensure columns like 'WARD', 'Total Reporting Units', etc. exist.")
             return pd.DataFrame()
             
         df = df[[ward_col, total_col, perc_col, never_col]].copy()
@@ -227,32 +227,4 @@ with tab2:
             total_row = {"ward": "Total"}
             for sfx in ["_S", "_P", "_L"]:
                 total_row[f"Total Reporting Units{sfx}"] = master[f"Total Reporting Units{sfx}"].sum()
-                total_row[f"% Of Average Reporting Units{sfx}"] = master[f"% Of Average Reporting Units{sfx}"].mean()
-                total_row[f"Never Reported Reporting Units{sfx}"] = master[f"Never Reported Reporting Units{sfx}"].sum()
-            
-            final_df_sum = pd.concat([master, pd.DataFrame([total_row])], ignore_index=True)
-            final_df_sum["Blank1"] = ""; final_df_sum["Blank2"] = ""
-            
-            cols_order = [
-                "ward",
-                "Total Reporting Units_S", "% Of Average Reporting Units_S", "Never Reported Reporting Units_S", "Blank1",
-                "Total Reporting Units_P", "% Of Average Reporting Units_P", "Never Reported Reporting Units_P", "Blank2",
-                "Total Reporting Units_L", "% Of Average Reporting Units_L", "Never Reported Reporting Units_L"
-            ]
-            
-            export_df = final_df_sum[cols_order]
-            st.subheader("Summary Preview")
-            st.dataframe(export_df, use_container_width=True)
-            
-            sum_buf = BytesIO()
-            with pd.ExcelWriter(sum_buf, engine='xlsxwriter') as writer:
-                export_df.to_excel(writer, index=False, sheet_name='Summary')
-                workbook = writer.book
-                worksheet = writer.sheets['Summary']
-                header_fmt = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
-                for col_num, value in enumerate(export_df.columns.values):
-                    worksheet.write(0, col_num, value, header_fmt)
-
-            st.download_button("Download Summary Excel", sum_buf.getvalue(), "Reporting_Summary.xlsx")
-    else:
-        st.info("Upload all three summary files to proceed.")
+                total_row
