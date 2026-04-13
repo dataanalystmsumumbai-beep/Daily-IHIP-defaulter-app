@@ -164,7 +164,7 @@ with tab1:
         st.download_button("Download Output 2", generate_output2_excel(out2, report_datetime), f"Def_List_{report_datetime}.xlsx")
 
 # ----------------------------------------------------------------
-# TAB 2: CONSOLIDATED REPORTING SUMMARY (Syntax Fix Applied)
+# TAB 2: CONSOLIDATED REPORTING SUMMARY (Syntax Bug Fix)
 # ----------------------------------------------------------------
 with tab2:
     st.title("Reporting Summary Status")
@@ -189,7 +189,7 @@ with tab2:
         def find_col(k):
             return next((c for c in df.columns if k.lower() in c.lower()), None)
             
-        ward_col = find_col("w a r d") or find_col("ward")
+        ward_col = find_col("ward")
         total_col = find_col("total reporting units")
         perc_col = find_col("% of average")
         never_col = find_col("never reported")
@@ -199,15 +199,20 @@ with tab2:
             
         df = df[[ward_col, total_col, perc_col, never_col]].copy()
         df.rename(columns={
-            ward_col: "ward", total_col: "Total Reporting Units",
+            ward_col: "ward", 
+            total_col: "Total Reporting Units",
             perc_col: "% Of Average Reporting Units",
             never_col: "Never Reported Reporting Units"
         }, inplace=True)
         
-        # Fixed the line that caused SyntaxError
-        cols_to_convert = ["Total Reporting Units", "% Of Average Reporting Units", "Never Reported Reporting Units"]
-        for col in cols_to_convert:
+        # --- FIXED SYNTAX ERROR HERE ---
+        c1 = "Total Reporting Units"
+        c2 = "% Of Average Reporting Units"
+        c3 = "Never Reported Reporting Units"
+        
+        for col in [c1, c2, c3]:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        # -------------------------------
         
         df["ward"] = df["ward"].astype(str).str.strip()
         return df[df["ward"] != "nan"]
