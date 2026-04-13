@@ -189,7 +189,7 @@ if dfs:
 
         return output.getvalue()
 
-    def generate_output2_excel(df):
+    def generate_output2_excel(df, report_datetime):
         output = BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, startrow=2)
@@ -212,7 +212,7 @@ if dfs:
 
     st.download_button(
     "Download Output 2 Excel",
-    generate_output2_excel(out2),
+    generate_output2_excel(out2, report_datetime),
     f"IHIP Defaulter List of S, P & L Form of {report_datetime}.xlsx"
 )
 
