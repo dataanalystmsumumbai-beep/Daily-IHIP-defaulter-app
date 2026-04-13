@@ -38,7 +38,6 @@ with tab1:
     
     # ---------------- PROCESS ----------------
     def process_file(file, form):
-        # Using a safer context to read Excel without style errors
         try:
             with pd.ExcelFile(file) as xls:
                 raw = pd.read_excel(xls, header=None)
@@ -98,13 +97,11 @@ with tab1:
         final_df["ward_sort"] = final_df["WARD"].apply(lambda x: "ZZZ" if x.strip().lower() == "not mentioned" else x)
         final_df = final_df.sort_values(["ward_sort", "Facility Name"]).drop(columns=["ward_sort"])
         
-        # Output 1
         out1 = final_df.copy()
         out1.insert(0, "Sr No", range(1, len(out1)+1))
         st.subheader("Output 1")
         st.dataframe(out1, use_container_width=True)
 
-        # Output 2
         merged = final_df.copy()
         merged["key"] = merged["Facility Name"].astype(str).str.strip().str.lower()
         if contact_file:
@@ -144,7 +141,6 @@ with tab1:
         st.subheader("Output 2")
         st.dataframe(out2, use_container_width=True)
 
-        # Excel Export Functions
         def generate_output1_excel(df):
             buf = BytesIO()
             with pd.ExcelWriter(buf, engine='openpyxl') as writer:
@@ -164,13 +160,11 @@ with tab1:
                 for row in range(4, ws.max_row + 1): ws[f'G{row}'].number_format = '@'
             return buf.getvalue()
 
-        st.download_button("Download Output 1 Excel", generate_output1_excel(out1), f"{report_date}_Defaulter_List.xlsx")
-        st.download_button("Download Output 2 Excel", generate_output2_excel(out2, report_datetime), f"Defaulter_List_{report_datetime}.xlsx")
-    else:
-        st.info("Upload files to proceed")
+        st.download_button("Download Output 1", generate_output1_excel(out1), f"{report_date}_Def.xlsx")
+        st.download_button("Download Output 2", generate_output2_excel(out2, report_datetime), f"Def_List_{report_datetime}.xlsx")
 
 # ----------------------------------------------------------------
-# TAB 2: CONSOLIDATED REPORTING SUMMARY (Error-Free Logic)
+# TAB 2: CONSOLIDATED REPORTING SUMMARY (Syntax Fix Applied)
 # ----------------------------------------------------------------
 with tab2:
     st.title("Reporting Summary Status")
@@ -187,8 +181,7 @@ with tab2:
             else:
                 with pd.ExcelFile(file) as xls:
                     df = pd.read_excel(xls)
-        except Exception as e:
-            st.error(f"Error reading {file.name}: Formatting issue detected.")
+        except Exception:
             return pd.DataFrame()
         
         df.columns = [" ".join(str(c).split()) for c in df.columns]
@@ -202,7 +195,6 @@ with tab2:
         never_col = find_col("never reported")
         
         if not (ward_col and total_col and perc_col and never_col):
-            st.error(f"Columns not found in {file.name}")
             return pd.DataFrame()
             
         df = df[[ward_col, total_col, perc_col, never_col]].copy()
@@ -212,4 +204,59 @@ with tab2:
             never_col: "Never Reported Reporting Units"
         }, inplace=True)
         
-        for col in ["Total Reporting Units", "% Of Average Reporting Units", "
+        # Fixed the line that caused SyntaxError
+        cols_to_convert = ["Total Reporting Units", "% Of Average Reporting Units", "Never Reported Reporting Units"]
+        for col in cols_to_convert:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        
+        df["ward"] = df["ward"].astype(str).str.strip()
+        return df[df["ward"] != "nan"]
+
+    if sum_s and sum_p and sum_l:
+        ds = process_summary_file(sum_s)
+        dp = process_summary_file(sum_p)
+        dl = process_summary_file(sum_l)
+        
+        if not ds.empty and not dp.empty and not dl.empty:
+            master = pd.merge(ds, dp, on="ward", how="outer", suffixes=("_S", "_P"))
+            master = pd.merge(master, dl, on="ward", how="outer").fillna(0)
+            master.rename(columns={
+                "Total Reporting Units": "Total Reporting Units_L",
+                "% Of Average Reporting Units": "% Of Average Reporting Units_L",
+                "Never Reported Reporting Units": "Never Reported Reporting Units_L"
+            }, inplace=True)
+            
+            master = master.sort_values("ward")
+            
+            total_row = {"ward": "Total"}
+            for sfx in ["_S", "_P", "_L"]:
+                total_row[f"Total Reporting Units{sfx}"] = master[f"Total Reporting Units{sfx}"].sum()
+                total_row[f"% Of Average Reporting Units{sfx}"] = master[f"% Of Average Reporting Units{sfx}"].mean()
+                total_row[f"Never Reported Reporting Units{sfx}"] = master[f"Never Reported Reporting Units{sfx}"].sum()
+            
+            final_df_sum = pd.concat([master, pd.DataFrame([total_row])], ignore_index=True)
+            final_df_sum["Blank1"] = ""; final_df_sum["Blank2"] = ""
+            
+            cols_order = [
+                "ward",
+                "Total Reporting Units_S", "% Of Average Reporting Units_S", "Never Reported Reporting Units_S", "Blank1",
+                "Total Reporting Units_P", "% Of Average Reporting Units_P", "Never Reported Reporting Units_P", "Blank2",
+                "Total Reporting Units_L", "% Of Average Reporting Units_L", "Never Reported Reporting Units_L"
+            ]
+            
+            export_df = final_df_sum[cols_order]
+            st.subheader("Summary Preview")
+            st.dataframe(export_df, use_container_width=True)
+            
+            sum_buf = BytesIO()
+            with pd.ExcelWriter(sum_buf, engine='xlsxwriter') as writer:
+                export_df.to_excel(writer, index=False, sheet_name='Summary')
+                workbook = writer.book
+                worksheet = writer.sheets['Summary']
+                header_fmt = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
+                for col_num, value in enumerate(export_df.columns.values):
+                    worksheet.write(0, col_num, value, header_fmt)
+
+            st.download_button("Download Summary Excel", sum_buf.getvalue(), "Reporting_Summary.xlsx")
+    else:
+        st.info("Upload all three summary files for the second tool.")
