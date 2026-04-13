@@ -160,8 +160,8 @@ with tab1:
                 for row in range(4, ws.max_row + 1): ws[f'G{row}'].number_format = '@'
             return buf.getvalue()
 
-        st.download_button("Download Output 1", generate_output1_excel(out1), f"{report_date}_Def.xlsx")
-        st.download_button("Download Output 2", generate_output2_excel(out2, report_datetime), f"Def_List_{report_datetime}.xlsx")
+        st.download_button("Download Output 1", generate_output1_excel(out1), f"{report_date}_IHIP Defaulter List of S, P & L Form.xlsx")
+        st.download_button("Download Output 2", generate_output2_excel(out2, report_datetime), f"IHIP Defaulter List of S, P & L Form of _{report_datetime}.xlsx")
 
 # ----------------------------------------------------------------
 # TAB 2: CONSOLIDATED REPORTING SUMMARY (Syntax Bug Fix)
