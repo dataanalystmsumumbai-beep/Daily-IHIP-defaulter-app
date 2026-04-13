@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import math
 
 st.set_page_config(page_title="IHIP Defaulter Tool", layout="wide")
 st.title("Daily IHIP Defaulter Analysis")
@@ -19,6 +20,14 @@ l_file = col3.file_uploader(" ", type=["xlsx"], key="l")
 
 st.markdown("---")
 
+# Contact File Upload
+st.subheader("Upload Contact File")
+contact_file = st.file_uploader("Upload Contact Details File", type=["xlsx"], key="contact")
+
+# Staff Input
+staff_input = st.text_area("Enter Staff Names (comma separated)", placeholder="A, B, C")
+
+st.markdown("---")
 
 def process_file(file, form_name):
     raw = pd.read_excel(file, header=None)
@@ -46,10 +55,8 @@ def process_file(file, form_name):
 
     df[report_col] = pd.to_numeric(df[report_col], errors='coerce')
 
-    # Defaulters
     defaulters = df[df[report_col].fillna(0).astype(float) == 0.0].copy()
 
-    # Category mapping
     category_map = {
         "Dispensary": "PUBLIC",
         "Government Medical College Hospital": "PUBLIC",
@@ -66,18 +73,13 @@ def process_file(file, form_name):
 
     defaulters['Category'] = defaulters[subtype_col].map(category_map).fillna("OTHER")
 
-    # Public / Private count
     public_count = (defaulters['Category'] == "PUBLIC").sum()
     private_count = (defaulters['Category'] == "PRIVATE").sum()
 
-    counts = {
-        "PUBLIC": public_count,
-        "PRIVATE": private_count
-    }
+    counts = {"PUBLIC": public_count, "PRIVATE": private_count}
 
     result = pd.DataFrame()
 
-    # ✅ Ward handling (fixed)
     if ward_col:
         result["WARD"] = (
             defaulters[ward_col]
@@ -97,6 +99,7 @@ def process_file(file, form_name):
     return result, counts
 
 
+# Process files
 dfs = []
 form_counts = {}
 
@@ -116,21 +119,20 @@ if l_file:
     form_counts["L FORM"] = count_l
 
 
-# 📊 Form-wise Defaulter Category Count
+# 📊 Category Count
 if form_counts:
     st.markdown("## 📊 Form-wise Defaulter Category Count")
 
     for form, counts in form_counts.items():
         st.markdown(f"### {form}")
-        col1, col2 = st.columns(2)
-        col1.metric("PUBLIC", counts["PUBLIC"])
-        col2.metric("PRIVATE", counts["PRIVATE"])
+        c1, c2 = st.columns(2)
+        c1.metric("PUBLIC", counts["PUBLIC"])
+        c2.metric("PRIVATE", counts["PRIVATE"])
 
 
-# 📋 Combined Defaulter List
+# 📋 Output 1
 if dfs:
     final_df = pd.concat(dfs, ignore_index=True)
-
     final_df = final_df.sort_values(["WARD", "Facility Name"])
 
     st.subheader("Defaulter Facilities Combined List")
@@ -138,6 +140,59 @@ if dfs:
 
     csv = final_df.to_csv(index=False).encode('utf-8')
     st.download_button("Download CSV", csv, "combined_defaulters.csv", "text/csv")
+
+
+    # 🔥 Output 2 (Contact + Staff)
+    if contact_file:
+        contact_df = pd.read_excel(contact_file)
+
+        contact_df.columns = [str(c).strip() for c in contact_df.columns]
+
+        name_col_c = next((c for c in contact_df.columns if 'facility' in c.lower()), None)
+        person_col = next((c for c in contact_df.columns if 'contact' in c.lower()), None)
+        mobile_col = next((c for c in contact_df.columns if 'mobile' in c.lower()), None)
+
+        if name_col_c:
+            merged = final_df.merge(
+                contact_df[[name_col_c, person_col, mobile_col]],
+                left_on="Facility Name",
+                right_on=name_col_c,
+                how="left"
+            )
+
+            merged = merged.drop(columns=[name_col_c])
+
+            merged.rename(columns={
+                person_col: "Contact Person Name",
+                mobile_col: "Mobile Number"
+            }, inplace=True)
+
+            # 🔥 Assigned Staff Logic (Equal Block)
+            if staff_input:
+                staff_list = [s.strip() for s in staff_input.split(",") if s.strip()]
+
+                n = len(merged)
+                k = len(staff_list)
+
+                if k > 0:
+                    block_size = math.ceil(n / k)
+                    assigned = []
+
+                    for staff in staff_list:
+                        assigned.extend([staff] * block_size)
+
+                    merged["Assigned Staff"] = assigned[:n]
+                else:
+                    merged["Assigned Staff"] = ""
+
+            else:
+                merged["Assigned Staff"] = ""
+
+            st.subheader("Defaulter List with Contact & Staff")
+            st.dataframe(merged, use_container_width=True, hide_index=True)
+
+            csv2 = merged.to_csv(index=False).encode('utf-8')
+            st.download_button("Download Full Data", csv2, "final_output.csv", "text/csv")
 
 else:
     st.info("Upload at least one file to see results.")
