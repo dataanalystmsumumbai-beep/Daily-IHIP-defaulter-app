@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="IHIP Defaulter Tool", layout="wide")
 st.title("Daily IHIP Defaulter Analysis")
@@ -30,7 +31,6 @@ def process_file(file, form_name):
             break
 
     df = pd.read_excel(file, skiprows=header_row)
-
     df.columns = [str(c).replace('\n', ' ').strip() for c in df.columns]
 
     def find_col(keyword):
@@ -42,13 +42,26 @@ def process_file(file, form_name):
     ward_col = next((c for c in df.columns if any(w in c.lower() for w in ['ward', 'zone'])), None)
 
     if not (name_col and subtype_col and report_col):
-        return pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame()
 
     df[report_col] = pd.to_numeric(df[report_col], errors='coerce')
 
+    # Total
+    total = df.groupby(ward_col)[name_col].count().reset_index()
+    total.columns = ["WARD", "Total"]
+
+    # Defaulters
     defaulters = df[df[report_col].fillna(0).astype(float) == 0.0].copy()
 
-    # Updated category mapping
+    non_reporting = defaulters.groupby(ward_col)[name_col].count().reset_index()
+    non_reporting.columns = ["WARD", "Non-Reporting"]
+
+    summary = pd.merge(total, non_reporting, on="WARD", how="left").fillna(0)
+    summary["Non-Reporting"] = summary["Non-Reporting"].astype(int)
+    summary["Reporting"] = summary["Total"] - summary["Non-Reporting"]
+    summary["% Reporting"] = (summary["Reporting"] / summary["Total"] * 100).round(1)
+
+    # Category mapping
     category_map = {
         "Dispensary": "PUBLIC",
         "Government Medical College Hospital": "PUBLIC",
@@ -66,33 +79,71 @@ def process_file(file, form_name):
     defaulters['Category'] = defaulters[subtype_col].map(category_map).fillna("OTHER")
 
     result = pd.DataFrame()
-
-    if ward_col:
-        result["WARD"] = defaulters[ward_col]
-    else:
-        result["WARD"] = ""
-
+    result["WARD"] = defaulters[ward_col]
     result["Facility Name"] = defaulters[name_col]
     result["Form Type"] = form_name
     result["Category"] = defaulters["Category"]
     result["REMARK"] = ""
 
-    return result
+    return result, summary
+
 
 dfs = []
+summaries = {}
 
 if s_file:
-    dfs.append(process_file(s_file, "S FORM"))
+    df_s, sum_s = process_file(s_file, "S FORM")
+    dfs.append(df_s)
+    summaries["S FORM"] = sum_s
 
 if p_file:
-    dfs.append(process_file(p_file, "P FORM"))
+    df_p, sum_p = process_file(p_file, "P FORM")
+    dfs.append(df_p)
+    summaries["P FORM"] = sum_p
 
 if l_file:
-    dfs.append(process_file(l_file, "L FORM"))
+    df_l, sum_l = process_file(l_file, "L FORM")
+    dfs.append(df_l)
+    summaries["L FORM"] = sum_l
 
+# 📊 DASHBOARD SECTION
+if summaries:
+    st.subheader("📊 Ward-wise Reporting Dashboard")
+
+    for form, summary_df in summaries.items():
+        st.markdown(f"### {form}")
+
+        colA, colB = st.columns(2)
+
+        # Bar Chart
+        with colA:
+            fig, ax = plt.subplots()
+            ax.bar(summary_df["WARD"], summary_df["Reporting"], label="Reporting")
+            ax.bar(summary_df["WARD"], summary_df["Non-Reporting"], bottom=summary_df["Reporting"], label="Non-Reporting")
+            ax.set_title(f"{form} - Ward Performance")
+            ax.set_xlabel("Ward")
+            ax.set_ylabel("Facilities")
+            ax.legend()
+            st.pyplot(fig)
+
+        # Pie Chart
+        with colB:
+            total_reporting = summary_df["Reporting"].sum()
+            total_non = summary_df["Non-Reporting"].sum()
+
+            fig2, ax2 = plt.subplots()
+            ax2.pie([total_reporting, total_non],
+                    labels=["Reporting", "Non-Reporting"],
+                    autopct='%1.1f%%')
+            ax2.set_title(f"{form} Overall Split")
+            st.pyplot(fig2)
+
+        # Table
+        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+# 📋 Combined Defaulters
 if dfs:
     final_df = pd.concat(dfs, ignore_index=True)
-
     final_df = final_df.sort_values(["WARD", "Facility Name"])
 
     st.subheader("Defaulter Facilities Combined List")
