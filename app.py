@@ -4,7 +4,7 @@ import pandas as pd
 st.set_page_config(page_title="IHIP Defaulter Tool", layout="wide")
 st.title("Daily IHIP Defaulter Analysis")
 
-# Upload
+# ---------------- Upload ----------------
 col1, col2, col3 = st.columns(3)
 
 s_file = col1.file_uploader("S-Form", type=["xlsx"])
@@ -16,7 +16,7 @@ st.markdown("---")
 contact_file = st.file_uploader("Upload Contact File", type=["xlsx"])
 staff_input = st.text_input("Enter Staff Names (comma separated)")
 
-# ---------------- PROCESS FUNCTION ----------------
+# ---------------- PROCESS ----------------
 def process_file(file, form):
     raw = pd.read_excel(file, header=None)
 
@@ -82,7 +82,7 @@ if l_file:
 if dfs:
     final_df = pd.concat(dfs, ignore_index=True)
 
-    # -------- OUTPUT 1 --------
+    # ---------------- OUTPUT 1 ----------------
     out1 = final_df.copy()
     out1.insert(0, "Sr No", range(1, len(out1)+1))
 
@@ -92,8 +92,11 @@ if dfs:
     csv1 = out1.to_csv(index=False).encode("utf-8")
     st.download_button("Download Output 1", csv1, "output1.csv", "text/csv")
 
-    # -------- OUTPUT 2 --------
+    # ---------------- OUTPUT 2 ----------------
     merged = final_df.copy()
+
+    # CLEAN MATCH PREP
+    merged["key"] = merged["Facility Name"].astype(str).str.strip().str.lower()
 
     if contact_file:
         cdf = pd.read_excel(contact_file)
@@ -104,12 +107,13 @@ if dfs:
         mobile = next((c for c in cdf.columns if "mobile" in c.lower()), None)
 
         if name_c and person and mobile:
+            cdf["key"] = cdf[name_c].astype(str).str.strip().str.lower()
+
             merged = merged.merge(
-                cdf[[name_c, person, mobile]],
-                left_on="Facility Name",
-                right_on=name_c,
+                cdf[["key", person, mobile]],
+                on="key",
                 how="left"
-            ).drop(columns=[name_c])
+            )
 
             merged.rename(columns={
                 person: "Contact Person Name",
@@ -124,7 +128,7 @@ if dfs:
     merged["Contact Person Name"] = merged["Contact Person Name"].astype(str).replace(["nan",""], "Not Available")
     merged["Mobile Number"] = merged["Mobile Number"].astype(str).replace(["nan",""], "Not Available")
 
-    # -------- ASSIGNED STAFF (BLOCK LOGIC PERFECT) --------
+    # ---------------- ASSIGNED STAFF (CORRECT BLOCK) ----------------
     if staff_input:
         staff = [s.strip() for s in staff_input.split(",") if s.strip()]
         n = len(merged)
@@ -137,17 +141,23 @@ if dfs:
             extra = n % k
 
             for i, s in enumerate(staff):
-                count = base + (1 if i == k-1 else 0) * extra
+                count = base
+                if i == k - 1:
+                    count += extra
                 assigned.extend([s] * count)
 
         merged["Assigned Staff"] = assigned
     else:
         merged["Assigned Staff"] = ""
 
+    # remove helper column
+    merged.drop(columns=["key"], inplace=True)
+
     # final order
-    cols = [
-        "WARD","Facility Name","Form Type","Category","REMARK",
-        "Contact Person Name","Mobile Number","Assigned Staff"
+    cols = list(final_df.columns) + [
+        "Contact Person Name",
+        "Mobile Number",
+        "Assigned Staff"
     ]
 
     for c in cols:
