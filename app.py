@@ -204,7 +204,7 @@ if dfs:
     st.download_button(
     "Download Output 2 Excel",
     generate_output2_excel(out2),
-    f"{report_date} IHIP Defaulter List of S, P & L Form till {report_datetime}.xlsx"
+    f"IHIP Defaulter List of S, P & L Form of {report_datetime}.xlsx"
 )
 
 else:
