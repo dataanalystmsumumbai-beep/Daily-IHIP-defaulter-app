@@ -22,8 +22,6 @@ staff_input = st.text_input("Enter Staff Names (comma separated) i.e. A,B,C")
 report_date = st.text_input("Enter Date (DD-MM-YYYY)", "13-04-2026")
 report_time = st.text_input("Enter Time Only (e.g. 04.05pm)")
 
-st.markdown("---")
-
 # ---------------- AUTO DAY + DATETIME ----------------
 day_name = ""
 try:
@@ -33,7 +31,7 @@ except:
 
 report_datetime = f"{day_name} {report_date} till {report_time}"
 
-# ---------------- PROCESS FUNCTION ----------------
+# ---------------- PROCESS ----------------
 def process_file(file, form):
     raw = pd.read_excel(file, header=None)
 
@@ -140,6 +138,14 @@ if dfs:
                 mobile: "Mobile Number"
             }, inplace=True)
 
+    # ---------------- CLEAN MOBILE FIX ----------------
+    if "Mobile Number" in merged.columns:
+        merged["Mobile Number"] = (
+            merged["Mobile Number"]
+            .astype(str)
+            .str.replace(".0", "", regex=False)
+        )
+
     for col in ["Contact Person Name", "Mobile Number"]:
         if col not in merged.columns:
             merged[col] = ""
@@ -200,7 +206,7 @@ if dfs:
             ws.merge_cells('A2:I2')
             ws['A2'] = report_datetime
 
-            # ---------------- MOBILE FORMAT FIX ----------------
+            # Optional Excel format fix
             for row in range(4, ws.max_row + 1):
                 ws[f'G{row}'].number_format = '@'
 
