@@ -19,7 +19,7 @@ staff_input = st.text_input("Enter Staff Names (comma separated)")
 
 # Manual Inputs
 report_date = st.text_input("Enter Date (DD-MM-YYYY)", "13-04-2026")
-report_datetime = st.text_input("Enter Full Date-Time (e.g. Monday 13-04-2026 till 04:04 PM)")
+report_datetime = st.text_input("Enter Full Date-Time (e.g. monday 13-04-2026 till 04.04pm)")
 
 st.markdown("---")
 
@@ -88,9 +88,14 @@ if l_file:
 if dfs:
     final_df = pd.concat(dfs, ignore_index=True)
 
-    # SORT
+    # 🔥 SORT (Not Mentioned last)
     final_df["WARD"] = final_df["WARD"].astype(str)
-    final_df = final_df.sort_values(["WARD", "Facility Name"])
+
+    final_df["ward_sort"] = final_df["WARD"].apply(
+        lambda x: "ZZZ" if x.strip().lower() == "not mentioned" else x
+    )
+
+    final_df = final_df.sort_values(["ward_sort", "Facility Name"]).drop(columns=["ward_sort"])
 
     # ---------------- OUTPUT 1 ----------------
     out1 = final_df.copy()
@@ -132,7 +137,7 @@ if dfs:
     merged["Contact Person Name"] = merged["Contact Person Name"].astype(str).replace(["nan",""], "Not Available")
     merged["Mobile Number"] = merged["Mobile Number"].astype(str).replace(["nan",""], "Not Available")
 
-    # ASSIGNED STAFF
+    # 🔥 ASSIGNED STAFF
     if staff_input:
         staff = [s.strip() for s in staff_input.split(",") if s.strip()]
         n = len(merged)
