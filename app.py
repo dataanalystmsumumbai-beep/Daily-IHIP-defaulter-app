@@ -6,7 +6,7 @@ from io import BytesIO
 st.set_page_config(page_title="IHIP Defaulter Tool", layout="wide")
 st.title("Daily IHIP Defaulter Analysis")
 
-# ---------------- UPLOAD SECTION ----------------
+# ---------------- UPLOADS ----------------
 col1, col2, col3 = st.columns(3)
 
 s_file = col1.file_uploader("S-Form", type=["xlsx"])
@@ -24,7 +24,7 @@ report_datetime = st.text_input("Enter Full Date-Time", "")
 st.markdown("---")
 
 # =========================================================
-# ---------------- PROCESS FILE FUNCTION ------------------
+# ---------------- PROCESS FUNCTION -----------------------
 # =========================================================
 
 def process_file(file, form):
@@ -75,6 +75,8 @@ def process_file(file, form):
     out["Form Type"] = form
     out["Category"] = df["Category"]
 
+    out["REMARK"] = ""   # ✅ FIX RESTORED
+
     return out
 
 # =========================================================
@@ -115,10 +117,10 @@ if dfs:
             df.to_excel(writer, index=False, startrow=2)
             ws = writer.sheets['Sheet1']
 
-            ws.merge_cells('A1:F1')
-            ws['A1'] = "IHIP Defaulter"
+            ws.merge_cells('A1:G1')
+            ws['A1'] = "IHIP Defaulter Report"
 
-            ws.merge_cells('A2:F2')
+            ws.merge_cells('A2:G2')
             ws['A2'] = report_date
 
         return output.getvalue()
@@ -186,6 +188,8 @@ if dfs:
 
     merged.drop(columns=["key"], inplace=True)
 
+    merged["REMARK"] = ""   # ✅ FIX RESTORED
+
     out2 = merged.copy()
     out2.insert(0, "Sr No", range(1, len(out2) + 1))
 
@@ -198,10 +202,10 @@ if dfs:
             df.to_excel(writer, index=False, startrow=2)
             ws = writer.sheets['Sheet1']
 
-            ws.merge_cells('A1:I1')
-            ws['A1'] = "IHIP Not Reporting Units"
+            ws.merge_cells('A1:J1')
+            ws['A1'] = "IHIP Not Reporting Units Report"
 
-            ws.merge_cells('A2:I2')
+            ws.merge_cells('A2:J2')
             ws['A2'] = report_datetime
 
         return output.getvalue()
@@ -253,10 +257,12 @@ if s_file and p_file and l_file:
     p_df = p_df.reindex(range(max_len)).fillna("")
     l_df = l_df.reindex(range(max_len)).fillna("")
 
-    blank1 = pd.DataFrame([""] * max_len, columns=[" "])
-    blank2 = pd.DataFrame([""] * max_len, columns=[" "])
+    blank1 = pd.DataFrame([""] * max_len, columns=["BLANK_1"])
+    blank2 = pd.DataFrame([""] * max_len, columns=["BLANK_2"])
 
     output3 = pd.concat([s_df, blank1, p_df, blank2, l_df], axis=1)
+
+    output3 = output3.loc[:, ~output3.columns.duplicated()]
 
     output3.insert(0, "Sr No", range(1, len(output3) + 1))
 
@@ -270,10 +276,10 @@ if s_file and p_file and l_file:
             df.to_excel(writer, index=False, startrow=2)
             ws = writer.sheets["Sheet1"]
 
-            ws.merge_cells("A1:K1")
+            ws.merge_cells("A1:L1")
             ws["A1"] = "Ward Wise Comparison (S / P / L)"
 
-            ws.merge_cells("A2:K2")
+            ws.merge_cells("A2:L2")
             ws["A2"] = f"Date: {output3_date}"
 
         return output.getvalue()
