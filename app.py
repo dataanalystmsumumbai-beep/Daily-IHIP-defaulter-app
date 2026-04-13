@@ -3,61 +3,39 @@ import pandas as pd
 from io import BytesIO
 
 # =========================================================
-# PAGE
+# APP CONFIG
 # =========================================================
 
-st.set_page_config(page_title="IHIP Tool", layout="wide")
+st.set_page_config(page_title="IHIP Defaulter Tool", layout="wide")
 st.title("Daily IHIP Defaulter Analysis")
 
 # =========================================================
-# SAFE EXCEL READER (FIXED)
+# SAFE EXCEL READER (FIX ALL OPENPYXL ERRORS)
 # =========================================================
 
 def safe_read_excel(file):
     try:
         return pd.read_excel(file, engine="openpyxl")
-    except Exception:
+    except:
         try:
             return pd.read_excel(file, engine="xlrd")
-        except Exception:
+        except:
             return pd.read_excel(file)
 
 # =========================================================
-# OUTPUT 1/2 INPUTS
+# INPUTS (OUTPUT 1 & 2)
 # =========================================================
 
 col1, col2, col3 = st.columns(3)
 
-s_file = col1.file_uploader("S Form (O1/O2)", type=["xlsx"])
-p_file = col2.file_uploader("P Form (O1/O2)", type=["xlsx"])
-l_file = col3.file_uploader("L Form (O1/O2)", type=["xlsx"])
-
-st.markdown("---")
-
-contact_file = st.file_uploader("Contact File", type=["xlsx"])
-staff_input = st.text_input("Staff Names")
-
-report_date = st.text_input("Report Date", "13-04-2026")
-report_datetime = st.text_input("Report DateTime", "")
-
-# =========================================================
-# OUTPUT 3 INPUTS (SEPARATE)
-# =========================================================
-
-st.subheader("Output 3 - Upload Files")
-
-col4, col5, col6 = st.columns(3)
-
-s_file_3 = col4.file_uploader("S Form (O3)", type=["xlsx"])
-p_file_3 = col5.file_uploader("P Form (O3)", type=["xlsx"])
-l_file_3 = col6.file_uploader("L Form (O3)", type=["xlsx"])
-
-output3_date = st.text_input("Output 3 Date", "13-04-2026")
+s_file = col1.file_uploader("S Form", type=["xlsx"])
+p_file = col2.file_uploader("P Form", type=["xlsx"])
+l_file = col3.file_uploader("L Form", type=["xlsx"])
 
 st.markdown("---")
 
 # =========================================================
-# PROCESS O1/O2
+# PROCESS OUTPUT 1 & 2
 # =========================================================
 
 def process_file(file, form):
@@ -65,28 +43,20 @@ def process_file(file, form):
     df = safe_read_excel(file)
     df.columns = [str(c).strip() for c in df.columns]
 
-    def find_col(k):
-        return next((c for c in df.columns if k in c.lower()), None)
+    ward_col = next((c for c in df.columns if "ward" in c.lower()), None)
+    name_col = next((c for c in df.columns if "facility" in c.lower()), None)
+    subtype_col = next((c for c in df.columns if "sub" in c.lower()), None)
 
-    name = find_col("facility name")
-    subtype = find_col("facility sub-type")
-    report = find_col("number of times reported")
-    ward = find_col("ward") or find_col("zone")
-
-    if not name:
-        return pd.DataFrame()
-
-    df["WARD"] = df[ward] if ward else "Not Mentioned"
-
-    df["Category"] = "OTHER"
-    if subtype:
-        df["Category"] = df[subtype]
+    if not ward_col:
+        df["WARD"] = "Not Mentioned"
+    else:
+        df["WARD"] = df[ward_col]
 
     out = pd.DataFrame()
     out["WARD"] = df["WARD"]
-    out["Facility Name"] = df[name]
+    out["Facility Name"] = df[name_col] if name_col else ""
     out["Form Type"] = form
-    out["Category"] = df["Category"]
+    out["Category"] = df[subtype_col] if subtype_col else ""
     out["REMARK"] = ""
 
     return out
@@ -108,54 +78,52 @@ if dfs:
 
     final_df = pd.concat(dfs, ignore_index=True)
 
-    if "WARD" not in final_df.columns:
-        final_df["WARD"] = "Not Mentioned"
-
-    final_df["WARD"] = final_df["WARD"].astype(str)
-
     out1 = final_df.copy()
     out1.insert(0, "Sr No", range(1, len(out1) + 1))
 
     st.subheader("Output 1")
     st.dataframe(out1, use_container_width=True)
 
-    # OUTPUT 2 (simple stable)
     out2 = final_df.copy()
     out2.insert(0, "Sr No", range(1, len(out2) + 1))
     out2["Contact"] = ""
     out2["Mobile"] = ""
     out2["Assigned Staff"] = ""
-    out2["REMARK"] = ""
 
     st.subheader("Output 2")
     st.dataframe(out2, use_container_width=True)
 
 # =========================================================
-# OUTPUT 3 (FIXED + DOWNLOAD ADDED)
+# OUTPUT 3 (FINAL LOGIC)
 # =========================================================
 
-st.subheader("Output 3 (Ward Comparison)")
+st.markdown("---")
+st.subheader("Output 3 - Ward Wise Reporting")
 
-def process_simple(file, prefix):
+def process_o3(file, prefix):
+
     df = safe_read_excel(file)
     df.columns = [str(c).strip() for c in df.columns]
 
-    ward_col = next((c for c in df.columns if "ward" in c.lower()), None)
+    ward_col = "A D M I N I S T R A T I V E W A R D"
+    total_col = next((c for c in df.columns if "total reporting" in c.lower()), None)
+    percent_col = next((c for c in df.columns if "% of average" in c.lower()), None)
+    never_col = next((c for c in df.columns if "never reported" in c.lower()), None)
 
-    if not ward_col:
-        return pd.DataFrame()
+    out = pd.DataFrame()
 
-    temp = df[[ward_col]].copy()
-    temp.columns = [f"{prefix}_Ward"]
-    temp[f"{prefix}_Ward"] = temp[f"{prefix}_Ward"].fillna("Not Mentioned")
+    out[f"{prefix}_Ward"] = df[ward_col] if ward_col in df.columns else ""
+    out[f"{prefix}_Total"] = df[total_col] if total_col else ""
+    out[f"{prefix}_%"] = df[percent_col] if percent_col else ""
+    out[f"{prefix}_Never"] = df[never_col] if never_col else 0
 
-    return temp.reset_index(drop=True)
+    return out
 
-if s_file_3 and p_file_3 and l_file_3:
+if s_file and p_file and l_file:
 
-    s_df = process_simple(s_file_3, "S")
-    p_df = process_simple(p_file_3, "P")
-    l_df = process_simple(l_file_3, "L")
+    s_df = process_o3(s_file, "S")
+    p_df = process_o3(p_file, "P")
+    l_df = process_o3(l_file, "L")
 
     max_len = max(len(s_df), len(p_df), len(l_df))
 
@@ -172,20 +140,19 @@ if s_file_3 and p_file_3 and l_file_3:
 
     st.dataframe(output3, use_container_width=True)
 
-    # ================= DOWNLOAD =================
+    # =====================================================
+    # DOWNLOAD OUTPUT 3
+    # =====================================================
 
-    def excel_o3(df):
+    def to_excel(df):
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df.to_excel(writer, index=False, startrow=2)
-            ws = writer.sheets["Sheet1"]
-            ws["A1"] = "Ward Wise Comparison"
-            ws["A2"] = output3_date
+            df.to_excel(writer, index=False)
         return output.getvalue()
 
     st.download_button(
-        "Download Output 3 Excel",
-        excel_o3(output3),
+        "Download Output 3",
+        to_excel(output3),
         "output3.xlsx"
     )
 
