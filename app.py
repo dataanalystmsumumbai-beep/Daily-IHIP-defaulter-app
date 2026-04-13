@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from io import BytesIO
+import datetime
 
 st.set_page_config(page_title="IHIP Defaulter Tool", layout="wide")
 st.title("Daily IHIP Defaulter Analysis")
@@ -17,22 +18,22 @@ st.markdown("---")
 contact_file = st.file_uploader("Upload Contact File", type=["xlsx"])
 staff_input = st.text_input("Enter Staff Names (comma separated) i.e. A,B,C")
 
-# Manual Inputs
+# ---------------- INPUTS ----------------
 report_date = st.text_input("Enter Date (DD-MM-YYYY)", "13-04-2026")
 report_time = st.text_input("Enter Time Only (e.g. 04.05pm)")
-import datetime
 
+st.markdown("---")
+
+# ---------------- DAY + DATETIME BUILD ----------------
 day_name = ""
 try:
     day_name = datetime.datetime.strptime(report_date, "%d-%m-%Y").strftime("%A")
 except:
     day_name = ""
-    report_datetime = f"{day_name} {report_date} till {report_time}"
-    
 
-st.markdown("---")
+report_datetime = f"{day_name} {report_date} till {report_time}"
 
-# ---------------- PROCESS ----------------
+# ---------------- PROCESS FUNCTION ----------------
 def process_file(file, form):
     raw = pd.read_excel(file, header=None)
 
@@ -84,6 +85,7 @@ def process_file(file, form):
 
     return out
 
+
 # ---------------- MAIN ----------------
 dfs = []
 
@@ -97,8 +99,7 @@ if l_file:
 if dfs:
     final_df = pd.concat(dfs, ignore_index=True)
 
-    # 🔥 SORT (Not Mentioned last)
-    final_df["WARD"] = final_df["WARD"].astype(str)
+    final_df["WARD"] = final_df["WARD"].fillna("Not Mentioned").astype(str)
 
     final_df["ward_sort"] = final_df["WARD"].apply(
         lambda x: "ZZZ" if x.strip().lower() == "not mentioned" else x
@@ -146,7 +147,7 @@ if dfs:
     merged["Contact Person Name"] = merged["Contact Person Name"].astype(str).replace(["nan",""], "Not Available")
     merged["Mobile Number"] = merged["Mobile Number"].astype(str).replace(["nan",""], "Not Available")
 
-    # 🔥 ASSIGNED STAFF
+    # ---------------- STAFF ----------------
     if staff_input:
         staff = [s.strip() for s in staff_input.split(",") if s.strip()]
         n = len(merged)
@@ -157,14 +158,12 @@ if dfs:
             base = n // k
             extra = n % k
             for i, s in enumerate(staff):
-                count = base
-                if i == k - 1:
-                    count += extra
+                count = base + (extra if i == k - 1 else 0)
                 assigned.extend([s] * count)
 
         merged["Assigned Staff"] = assigned
     else:
-        merged["Assigned Staff"] = ""
+        merged["Assigned Staff"] = "Not Assigned"
 
     merged.drop(columns=["key"], inplace=True)
 
@@ -196,25 +195,25 @@ if dfs:
             ws = writer.sheets['Sheet1']
 
             ws.merge_cells('A1:I1')
-            ws['A1'] = "IHIP not reporting units"
+            ws['A1'] = "IHIP Defaulter List of S, P & L Form"
 
             ws.merge_cells('A2:I2')
             ws['A2'] = report_datetime
 
         return output.getvalue()
 
-    # DOWNLOAD BUTTONS
+    # ---------------- DOWNLOAD ----------------
     st.download_button(
-    "Download Output 1 Excel",
-    generate_output1_excel(out1),
-    f"{report_date} IHIP Defaulter List of S, P & L Form.xlsx"
-)
+        "Download Output 1 Excel",
+        generate_output1_excel(out1),
+        f"{report_date} IHIP Defaulter List of S, P & L Form.xlsx"
+    )
 
     st.download_button(
-    "Download Output 2 Excel",
-    generate_output2_excel(out2, report_datetime),
-    f"IHIP Defaulter List of S, P & L Form of {report_datetime}.xlsx"
-)
+        "Download Output 2 Excel",
+        generate_output2_excel(out2, report_datetime),
+        f"IHIP Defaulter List of S, P & L Form of {report_datetime}.xlsx"
+    )
 
 else:
     st.info("Upload files to proceed")
