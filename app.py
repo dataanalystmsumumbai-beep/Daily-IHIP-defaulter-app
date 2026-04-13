@@ -164,7 +164,7 @@ with tab1:
         st.download_button("Download Output 2", generate_output2_excel(out2, report_datetime), f"IHIP Defaulter List of S, P & L Form of _{report_datetime}.xlsx")
 
 # ----------------------------------------------------------------
-# TAB 2: CONSOLIDATED REPORTING SUMMARY (Formatting Fix)
+# TAB 2: CONSOLIDATED REPORTING SUMMARY (Final Fix)
 # ----------------------------------------------------------------
 with tab2:
     st.title("Reporting Summary Status")
@@ -174,27 +174,30 @@ with tab2:
     sum_p = sc2.file_uploader("P-Form Summary", type=["csv", "xlsx"], key="p_sum")
     sum_l = sc3.file_uploader("L-Form Summary", type=["csv", "xlsx"], key="l_sum")
 
-    def process_summary_file(file):
+    def process_summary_file(file, form_name):
         try:
             if file.name.lower().endswith('.csv'):
                 df = pd.read_csv(file)
             else:
                 with pd.ExcelFile(file) as xls:
                     df = pd.read_excel(xls)
-        except Exception:
+        except Exception as e:
+            st.error(f"{form_name} फाईल वाचताना एरर: {str(e)}")
             return pd.DataFrame()
         
+        # Spaces कमी करून कॉलमची नावे सेट करणे
         df.columns = [" ".join(str(c).split()) for c in df.columns]
         
         def find_col(k):
             return next((c for c in df.columns if k.lower() in c.lower()), None)
             
+        # जुने कडक नियम काढून फक्त महत्त्वाचे शब्द शोधले आहेत
         ward_col = find_col("ward")
-        total_col = find_col("total reporting units")
-        perc_col = find_col("% of average")
-        never_col = find_col("never reported")
+        total_col = find_col("total")
+        perc_col = find_col("%") 
         
-        if not (ward_col and total_col and perc_col and never_col):
+        if not (ward_col and total_col and perc_col):
+            st.error(f"{form_name} फाईलमध्ये योग्य कॉलम्स सापडले नाहीत. फाईलमध्ये हे कॉलम्स आहेत: {', '.join(df.columns)}")
             return pd.DataFrame()
             
         df = df[[ward_col, total_col, perc_col]].copy()
@@ -211,12 +214,14 @@ with tab2:
         return df[df["ward"] != "nan"]
 
     if sum_s and sum_p and sum_l:
-        ds = process_summary_file(sum_s)
-        dp = process_summary_file(sum_p)
-        dl = process_summary_file(sum_l)
+        ds = process_summary_file(sum_s, "S-Form")
+        dp = process_summary_file(sum_p, "P-Form")
+        dl = process_summary_file(sum_l, "L-Form")
         
-        if not ds.empty and not dp.empty and not dl.empty:
-            # Merging
+        # जर कोणतीही फाईल रिकामी रिटर्न झाली असेल तर
+        if ds.empty or dp.empty or dl.empty:
+            st.warning("डेटा प्रोसेस होऊ शकला नाही. कृपया वर आलेले लाल रंगाचे एरर मेसेजेस तपासा.")
+        else:
             master = pd.merge(ds, dp, on="ward", how="outer", suffixes=("_S", "_P"))
             master = pd.merge(master, dl, on="ward", how="outer").fillna(0)
             master.rename(columns={"Total Units": "Total Units_L", "% Reporting": "% Reporting_L"}, inplace=True)
@@ -224,7 +229,6 @@ with tab2:
             master = master.sort_values("ward")
             master["Blank1"] = ""; master["Blank2"] = ""
             
-            # Column Order
             cols_order = [
                 "ward", "Total Units_S", "% Reporting_S", "Blank1",
                 "Total Units_P", "% Reporting_P", "Blank2",
@@ -235,40 +239,40 @@ with tab2:
             st.subheader("Summary Preview")
             st.dataframe(export_df, use_container_width=True)
             
-            # --- EXCEL FORMATTING AS PER IMAGE ---
-            sum_buf = BytesIO()
-            with pd.ExcelWriter(sum_buf, engine='xlsxwriter') as writer:
-                # Start data from row 4 to leave space for headers
-                export_df.to_excel(writer, index=False, sheet_name='Summary', startrow=3, header=False)
-                
-                workbook = writer.book
-                worksheet = writer.sheets['Summary']
-                
-                # Formats
-                bold_center = workbook.add_format({'bold': True, 'align': 'center', 'border': 1})
-                header_fmt = workbook.add_format({'bold': True, 'align': 'center', 'bg_color': '#F2F2F2', 'border': 1})
+            try:
+                sum_buf = BytesIO()
+                with pd.ExcelWriter(sum_buf, engine='xlsxwriter') as writer:
+                    export_df.to_excel(writer, index=False, sheet_name='Summary', startrow=3, header=False)
+                    
+                    workbook = writer.book
+                    worksheet = writer.sheets['Summary']
+                    
+                    bold_center = workbook.add_format({'bold': True, 'align': 'center', 'border': 1})
+                    header_fmt = workbook.add_format({'bold': True, 'align': 'center', 'bg_color': '#F2F2F2', 'border': 1})
 
-                # Row 1: Merge for "Non reporting units"
-                worksheet.merge_range('B1:C1', 'Non reporting units', bold_center)
-                worksheet.merge_range('F1:G1', 'Non reporting units', bold_center)
-                worksheet.merge_range('I1:J1', 'Non reporting units', bold_center)
+                    worksheet.merge_range('B1:C1', 'Non reporting units', bold_center)
+                    worksheet.merge_range('F1:G1', 'Non reporting units', bold_center)
+                    worksheet.merge_range('I1:J1', 'Non reporting units', bold_center)
 
-                # Row 2: Merge for Form Types
-                worksheet.merge_range('B2:C2', 'S-Form', bold_center)
-                worksheet.merge_range('F2:G2', 'P-Form', bold_center)
-                worksheet.merge_range('I2:J2', 'L-Form', bold_center)
+                    worksheet.merge_range('B2:C2', 'S-Form', bold_center)
+                    worksheet.merge_range('F2:G2', 'P-Form', bold_center)
+                    worksheet.merge_range('I2:J2', 'L-Form', bold_center)
 
-                # Row 3: Sub-headers
-                sub_headers = ['ward', 'Total Units', '% Reporting', '', 'Total Units', '% Reporting', '', 'Total Units', '% Reporting']
-                for col_num, header in enumerate(sub_headers):
-                    if header:
-                        worksheet.write(2, col_num, header, header_fmt)
+                    sub_headers = ['ward', 'Total Units', '% Reporting', '', 'Total Units', '% Reporting', '', 'Total Units', '% Reporting']
+                    for col_num, header in enumerate(sub_headers):
+                        if header:
+                            worksheet.write(2, col_num, header, header_fmt)
 
-            st.download_button(
-                label="Download Summary Excel",
-                data=sum_buf.getvalue(),
-                file_name="Reporting_Summary.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+                # Download Button with unique key
+                st.success("फाईल तयार झाली आहे! खालील बटणावर क्लिक करून डाऊनलोड करा.")
+                st.download_button(
+                    label="📥 Download Summary Excel",
+                    data=sum_buf.getvalue(),
+                    file_name="Reporting_Summary.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="download_summary_btn"
+                )
+            except Exception as e:
+                st.error(f"Excel फाईल जनरेट करताना काहीतरी चूक झाली: {str(e)}")
     else:
-        st.info("Please upload all files to see the Preview and Download button.")
+        st.info("कृपया तिन्ही (S, P, L) समरी फाईल्स अपलोड करा.")
