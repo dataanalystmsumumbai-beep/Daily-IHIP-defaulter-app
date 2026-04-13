@@ -83,6 +83,11 @@ def process_file(file, form):
     report = find_col("number of times reported")
     ward = next((c for c in df.columns if "ward" in c.lower() or "zone" in c.lower()), None)
 
+if ward:
+    df["WARD"] = df[ward]
+else:
+    df["WARD"] = "Not Mentioned"
+
     if not (name and subtype and report):
         return pd.DataFrame()
 
@@ -131,7 +136,10 @@ if dfs:
 
     final_df = pd.concat(dfs, ignore_index=True)
 
-    final_df["WARD"] = final_df["WARD"].astype(str)
+   if "WARD" not in final_df.columns:
+    final_df["WARD"] = "Not Mentioned"
+
+final_df["WARD"] = final_df["WARD"].astype(str)
 
     final_df["ward_sort"] = final_df["WARD"].apply(
         lambda x: "ZZZ" if x.strip().lower() == "not mentioned" else x
