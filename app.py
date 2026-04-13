@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 
-# Page configuration
+# Setting up the page
 st.set_page_config(page_title="IHIP Defaulter Dashboard", layout="wide")
 
 st.title("Daily IHIP Defaulter Analysis")
@@ -10,68 +10,60 @@ uploaded_file = st.file_uploader("Upload IHIP Excel File", type=["xlsx"])
 
 if uploaded_file is not None:
     try:
-        # Read Excel - skipping 1st row for headers
+        # Load excel and skip the first row
         df = pd.read_excel(uploaded_file, skiprows=1)
         
-        # Clean column names
+        # Cleaning column names for any hidden spaces
         df.columns = [str(c).strip() for c in df.columns]
         
-        # Identify key columns
+        # Searching for necessary columns using keywords
         target_col = next((c for c in df.columns if 'Number of times Reported' in c), None)
         ward_col = next((c for c in df.columns if 'Zone' in c or 'Ward' in c), None)
         type_col = next((c for c in df.columns if 'Facility Type' in c), None)
         name_col = next((c for c in df.columns if 'Facility Name' in c), None)
 
         if target_col and type_col:
-            # Filter rows with 0 reporting
+            # Filtering facilities with 0 reports
             defaulters = df[df[target_col] == 0].copy()
             
-            # Dictionary based on the table you provided
-            facility_mapping = {
-                'Dispensary': 'Public',
-                'Government Medical College Hospital': 'Public',
-                'IGSL Satellite Laboratory': 'Public',
-                'Infectious Disease Hospital': 'Public',
-                'Municipal Hospital': 'Public',
-                'Other Government Hospitals': 'Public',
-                'Private Hospital': 'Private',
-                'Private Laboratory': 'Private',
-                'Urban Primary Health Centre': 'Public'
-            }
+            # Function based on your specific table
+            def categorize_facility(val):
+                text = str(val).strip().lower()
+                # If 'private hospital' or 'private laboratory' is found in the text
+                if 'private hospital' in text or 'private laboratory' in text:
+                    return 'Private'
+                # All other types from your table fall under 'Public'
+                return 'Public'
 
-            def map_facility_type(val):
-                cleaned_val = str(val).strip()
-                # Return mapping if exists, otherwise default to 'Public'
-                return facility_mapping.get(cleaned_val, 'Public')
+            # Applying the categorization logic
+            defaulters[type_col] = defaulters[type_col].apply(categorize_facility)
 
-            defaulters[type_col] = defaulters[type_col].apply(map_facility_type)
+            # Calculating Summary Counts
+            private_count = (defaulters[type_col] == 'Private').sum()
+            public_count = (defaulters[type_col] == 'Public').sum()
 
-            # Summary Counts
-            count_private = len(defaulters[defaulters[type_col] == 'Private'])
-            count_public = len(defaulters[defaulters[type_col] == 'Public'])
+            # Displaying the summary line as requested
+            st.info(f"Summary: Total Private Defaulters: {private_count} | Total Public Defaulters: {public_count}")
 
-            # Display Summary
-            st.info(f"Summary: Total Private Defaulters: {count_private} | Total Public Defaulters: {count_public}")
-
-            # Rename Ward Column
+            # Renaming Ward column for cleaner display
             if ward_col:
                 defaulters = defaulters.rename(columns={ward_col: 'Ward'})
             
-            # Final table setup
-            display_columns = ['Ward', name_col, type_col]
-            final_available = [c for c in display_columns if c in defaulters.columns]
+            # Displaying selected columns
+            display_list = ['Ward', name_col, type_col]
+            final_available_cols = [c for c in display_list if c in defaulters.columns]
 
             if not defaulters.empty:
-                st.subheader("Defaulter List")
-                st.dataframe(defaulters[final_available], use_container_width=True, hide_index=True)
+                st.subheader("Defaulter Facility List")
+                st.dataframe(defaulters[final_available_cols], use_container_width=True, hide_index=True)
                 
-                # CSV Download
-                csv_data = defaulters[final_available].to_csv(index=False).encode('utf-8')
-                st.download_button("Download CSV", csv_data, "defaulters.csv", "text/csv")
+                # Option to download the result
+                csv_data = defaulters[final_available_cols].to_csv(index=False).encode('utf-8')
+                st.download_button("Download Report as CSV", csv_data, "defaulters_report.csv", "text/csv")
             else:
-                st.success("No defaulters found.")
+                st.success("No facilities with 0 reporting found.")
         else:
-            st.error("Required columns missing in Excel.")
+            st.error("Required columns missing. Please ensure your Excel has 'Number of times Reported' and 'Facility Type'.")
             
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error processing the file: {e}")
