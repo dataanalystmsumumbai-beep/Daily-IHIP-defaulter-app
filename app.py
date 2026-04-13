@@ -8,7 +8,7 @@ file = st.file_uploader("Upload IHIP Excel File", type=["xlsx"])
 
 if file is not None:
     try:
-        # Step 1: Detect correct header row
+        # Detect header row
         raw = pd.read_excel(file, header=None)
         header_row = 0
 
@@ -18,30 +18,30 @@ if file is not None:
                 header_row = i
                 break
 
-        # Step 2: Load actual data
+        # Load data
         df = pd.read_excel(file, skiprows=header_row)
 
-        # Step 3: Clean column names
+        # Clean columns
         df.columns = [str(c).replace('\n', ' ').strip() for c in df.columns]
 
-        # Step 4: Find required columns
+        # Find columns
         def find_col(keyword):
             return next((c for c in df.columns if keyword.lower() in c.lower()), None)
 
         name_col = find_col('facility name')
-        type_col = find_col('facility type')
+        subtype_col = find_col('facility sub-type')
         report_col = find_col('number of times reported')
         ward_col = next((c for c in df.columns if any(w in c.lower() for w in ['ward', 'zone'])), None)
 
-        if name_col and type_col and report_col:
+        if name_col and subtype_col and report_col:
 
-            # Step 5: Convert reporting column
+            # Convert reporting column
             df[report_col] = pd.to_numeric(df[report_col], errors='coerce')
 
-            # Step 6: Filter defaulters (0 reporting)
+            # Filter defaulters
             defaulters = df[df[report_col].fillna(0).astype(float) == 0.0].copy()
 
-            # Step 7: Exact mapping for Facility Type → Category
+            # Mapping using Facility Sub-Type
             category_map = {
                 "Dispensary": "Public",
                 "Government Medical College Hospital": "Public",
@@ -54,31 +54,30 @@ if file is not None:
                 "Private Laboratory": "Private"
             }
 
-            defaulters['Category'] = defaulters[type_col].map(category_map).fillna("Other")
+            defaulters['Category'] = defaulters[subtype_col].map(category_map).fillna("Other")
 
-            # Step 8: Count summary
+            # Counts
             p_count = (defaulters['Category'] == "Private").sum()
             pub_count = (defaulters['Category'] == "Public").sum()
 
-            # Step 9: Display metrics
+            # Metrics UI
             col1, col2 = st.columns(2)
             col1.metric("Private Defaulters", p_count)
             col2.metric("Public Defaulters", pub_count)
 
-            # Step 10: Prepare display columns
+            # Display columns
             show_cols = []
             if ward_col:
                 defaulters = defaulters.rename(columns={ward_col: "Ward"})
                 show_cols.append("Ward")
 
-            show_cols.extend([name_col, type_col, "Category"])
+            show_cols.extend([name_col, subtype_col, "Category"])
 
-            # Step 11: Display table
+            # Show table
             if not defaulters.empty:
                 st.subheader("Defaulter Facilities List")
                 st.dataframe(defaulters[show_cols], use_container_width=True, hide_index=True)
 
-                # Download option
                 csv = defaulters[show_cols].to_csv(index=False).encode('utf-8')
                 st.download_button("Download CSV", csv, "defaulters.csv", "text/csv")
 
