@@ -15,7 +15,7 @@ l_file = col3.file_uploader("L-Form", type=["xlsx"])
 st.markdown("---")
 
 contact_file = st.file_uploader("Upload Contact File", type=["xlsx"])
-staff_input = st.text_input("Enter Staff Names (comma separated)")
+staff_input = st.text_input("Enter Staff Names (comma separated)i.e. A,B,C")
 
 # Manual Inputs
 report_date = st.text_input("Enter Date (DD-MM-YYYY)", "13-04-2026")
