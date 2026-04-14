@@ -165,13 +165,11 @@ with tab1:
         st.download_button("Download Output 2", generate_output2_excel(out2, report_datetime), f"IHIP Defaulter List of S, P & L Form of _{report_datetime}.xlsx")
 
 # ----------------------------------------------------------------
-# TAB 2: CONSOLIDATED REPORTING SUMMARY (CALAMINE ENGINE FIX)
+# TAB 2: CONSOLIDATED REPORTING SUMMARY (FUZZY COLUMN MATCHING)
 # ----------------------------------------------------------------
 import pandas as pd
 import streamlit as st
 from io import BytesIO
-
-# Note: Ensure you have installed python-calamine (pip install python-calamine)
 
 with tab2:
     st.title("Reporting Summary Status")
@@ -182,51 +180,58 @@ with tab2:
     sum_l = sc3.file_uploader("L-Form Summary", type=["xlsx"], key="l_sum")
 
     def safe_read_excel(file):
-        if file is None:
-            return pd.DataFrame()
+        if file is None: return pd.DataFrame()
         try:
             file.seek(0)
-            # Using 'calamine' engine which ignores all styles/formatting errors
+            # engine="calamine" handles the style errors
             df = pd.read_excel(file, engine="calamine")
+            
+            # Logic: If the first few rows are empty or headers are not found, 
+            # we try to find the row that actually contains our keywords.
+            if df.empty: return df
+            
+            # If the first row looks like junk (all Unnamed), try next row
+            if all("Unnamed" in str(c) for c in df.columns[:2]):
+                df.columns = df.iloc[0]
+                df = df[1:].reset_index(drop=True)
+                
             return df
         except Exception as e:
-            # Last resort if calamine is not installed or fails
-            try:
-                file.seek(0)
-                return pd.read_excel(file)
-            except Exception as e2:
-                st.error(f"Critical error reading {file.name}: {str(e2)}")
-                return pd.DataFrame()
+            st.error(f"Read error: {str(e)}")
+            return pd.DataFrame()
 
     def process_summary_file(file, form_name):
         df = safe_read_excel(file)
-        if df.empty:
-            return pd.DataFrame()
+        if df.empty: return pd.DataFrame()
 
-        # Clean column names by removing extra spaces and newlines
-        df.columns = [" ".join(str(c).split()).strip() for c in df.columns]
+        # Fuzzy Match Logic: Remove all spaces and lowercase for matching
+        # Example: "A D M I N..." becomes "administrativeward"
+        raw_cols = {c: str(c).replace(" ", "").lower() for c in df.columns}
 
-        # Mapping columns based on your requirements
-        # 1. ward, 2. Total Reporting Units, 3. % Of Average Reporting Units, 4. Non Reported Units
-        ward_col = next((c for c in df.columns if "administrative" in c.lower() or "ward" in c.lower()), None)
-        total_col = next((c for c in df.columns if "total reporting units" in c.lower()), None)
-        perc_col = next((c for c in df.columns if "% of average" in c.lower()), None)
-        non_rep_col = next((c for c in df.columns if "never reported" in c.lower() or "non reported" in c.lower()), None)
+        def find_fuzzy_col(keywords):
+            for original_name, clean_name in raw_cols.items():
+                if any(k in clean_name for k in keywords):
+                    return original_name
+            return None
 
+        # Searching for your 4 columns using keywords
+        ward_col = find_fuzzy_col(["admin", "ward"])
+        total_col = find_fuzzy_col(["totalreporting"])
+        perc_col = find_fuzzy_col(["%ofaverage", "averagereporting"])
+        non_rep_col = find_fuzzy_col(["neverreported", "nonreported"])
+
+        # Debug: If columns not found, show the user what we found
         if not (ward_col and total_col and perc_col and non_rep_col):
-            st.warning(f"Required columns missing in {form_name}. Check headers.")
+            st.error(f"❌ Missing columns in {form_name}")
+            with st.expander(f"See detected columns for {form_name}"):
+                st.write(list(df.columns))
             return pd.DataFrame()
 
-        # Reorganize and rename
+        # Rename to your new standard names
         df = df[[ward_col, total_col, perc_col, non_rep_col]].copy()
-        df.rename(columns={
-            ward_col: "ward",
-            total_col: "Total Reporting Units",
-            perc_col: "% Of Average Reporting Units",
-            non_rep_col: "Non Reported Units"
-        }, inplace=True)
+        df.columns = ["ward", "Total Reporting Units", "% Of Average Reporting Units", "Non Reported Units"]
 
-        # Basic cleaning
+        # Final Cleaning
         df["ward"] = df["ward"].astype(str).str.strip()
         df = df[df["ward"].str.lower() != "nan"]
         
@@ -245,7 +250,7 @@ with tab2:
             m1 = pd.merge(ds, dp, on="ward", how="outer", suffixes=("_S", "_P"))
             master = pd.merge(m1, dl, on="ward", how="outer")
             
-            # Suffix for L-Form manually
+            # Suffix for L-Form
             master.rename(columns={
                 "Total Reporting Units": "Total Reporting Units_L",
                 "% Of Average Reporting Units": "% Of Average Reporting Units_L",
@@ -254,7 +259,7 @@ with tab2:
 
             master = master.fillna(0).sort_values("ward")
             
-            # Organize columns for final view
+            # Columns Order
             final_order = ["ward"]
             for sfx in ["_S", "_P", "_L"]:
                 final_order.extend([
@@ -267,7 +272,7 @@ with tab2:
             st.subheader("Consolidated Summary Preview")
             st.dataframe(export_df, use_container_width=True)
 
-            # Export to Excel
+            # Download
             output = BytesIO()
             with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
                 export_df.to_excel(writer, index=False, sheet_name="Summary")
@@ -279,4 +284,4 @@ with tab2:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
     else:
-        st.info("Please upload S, P, and L form summary files to proceed.")
+        st.info("Upload S, P, and L files to begin.")
