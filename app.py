@@ -202,7 +202,7 @@ with tab1:
 
 
 # ----------------------------------------------------------------
-# TAB 2: CONSOLIDATED REPORTING SUMMARY (FINAL WITH BOLD TOTAL & BORDERS)
+# TAB 2: CONSOLIDATED REPORTING SUMMARY (UPDATED WITH AVERAGE FOR %)
 # ----------------------------------------------------------------
 import pandas as pd
 import streamlit as st
@@ -212,7 +212,7 @@ import datetime
 with tab2:
     st.title("Reporting Summary Status")
 
-    report_date = st.date_input("Select Report Date", datetime.date.today())
+    report_date = st.date_input("Select Report Date", datetime.date.today(), key="date_tab2")
     formatted_date = report_date.strftime("%d-%m-%Y")
 
     sc1, sc2, sc3 = st.columns(3)
@@ -256,13 +256,11 @@ with tab2:
 
         df = df[[ward_col, total_col, perc_col, non_rep_col]].copy()
         df.columns = ["ward", "Total Reporting Units", "% Of Average Reporting Units", "Non Reported Units"]
-
         df["ward"] = df["ward"].astype(str).str.strip()
         df = df[df["ward"].str.lower() != "nan"]
         
         for col in ["Total Reporting Units", "% Of Average Reporting Units", "Non Reported Units"]:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-
         return df
 
     if sum_s and sum_p and sum_l:
@@ -281,8 +279,7 @@ with tab2:
             }, inplace=True)
 
             master = master.fillna(0).sort_values("ward")
-            master["Blank1"] = ""
-            master["Blank2"] = ""
+            master["Blank1"], master["Blank2"] = "", ""
 
             final_order = [
                 "ward",
@@ -294,19 +291,18 @@ with tab2:
             ]
             
             export_df = master[final_order]
-
-            # Logic for Not Mapped and Bold Total
             is_not_mapped = export_df["ward"].str.lower().str.replace(" ", "") == "notmapped"
-            not_mapped_df = export_df[is_not_mapped]
             main_df = export_df[~is_not_mapped]
+            not_mapped_df = export_df[is_not_mapped]
 
-            # Calculate Totals (Sum for Units, Average for Percentage)
+            # --- Calculate Totals (Sum for Units, Average for Percentage) ---
             sum_data = {"ward": "Total"}
             for col in final_order:
                 if col == "ward": continue
                 if "Units" in col:
                     sum_data[col] = main_df[col].sum()
                 elif "%" in col:
+                    # Logic: Average of the column for the Total row
                     sum_data[col] = round(main_df[col].mean(), 2)
                 else:
                     sum_data[col] = ""
@@ -317,64 +313,43 @@ with tab2:
             st.subheader("Consolidated Summary Preview")
             st.dataframe(final_display_df, use_container_width=True)
 
-            # Excel Export with Full Formatting
+            # --- Excel Export ---
             output = BytesIO()
             with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
                 final_display_df.to_excel(writer, index=False, sheet_name="Summary", startrow=3, header=False)
+                workbook, worksheet = writer.book, writer.sheets["Summary"]
                 
-                workbook = writer.book
-                worksheet = writer.sheets["Summary"]
-                
-                # --- FORMATS ---
+                # Formats
                 title_fmt = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14, 'border': 1})
                 header_fmt = workbook.add_format({'bold': True, 'align': 'center', 'bg_color': '#D9EAD3', 'border': 1})
                 sub_fmt = workbook.add_format({'bold': True, 'align': 'center', 'border': 1, 'text_wrap': True, 'bg_color': '#F3F3F3'})
                 data_fmt = workbook.add_format({'border': 1, 'align': 'center'})
                 total_row_fmt = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'bg_color': '#EFEFEF'})
                 
-                # --- LAYOUT ---
-                main_title = f"{formatted_date} IHIP S,P & L Reporting Status"
-                worksheet.merge_range('A1:L1', main_title, title_fmt)
-
+                # Titles
+                worksheet.merge_range('A1:L1', f"{formatted_date} IHIP S,P & L Reporting Status", title_fmt)
                 worksheet.merge_range('B2:D2', 'S-Form Status', header_fmt)
                 worksheet.merge_range('F2:H2', 'P-Form Status', header_fmt)
                 worksheet.merge_range('J2:L2', 'L-Form Status', header_fmt)
 
-                display_headers = ["Ward", "Total Reporting Units", "% Of Average", "Non Reported Units", "", 
-                                   "Total Reporting Units", "% Of Average", "Non Reported Units", "", 
-                                   "Total Reporting Units", "% Of Average", "Non Reported Units"]
-                
-                for col_num, col_name in enumerate(display_headers):
-                    worksheet.write(2, col_num, col_name, sub_fmt)
+                headers = ["Ward", "Total Reporting Units", "% Of Average", "Non Reported Units", "", 
+                           "Total Reporting Units", "% Of Average", "Non Reported Units", "", 
+                           "Total Reporting Units", "% Of Average", "Non Reported Units"]
+                for i, h in enumerate(headers): worksheet.write(2, i, h, sub_fmt)
 
-                # --- APPLY BORDERS & BOLD TOTAL ---
-                # Data starts from row 3 (0-indexed)
+                # Data Formatting
                 for row_num in range(len(final_display_df)):
-                    current_row_idx = row_num + 3
                     row_data = final_display_df.iloc[row_num]
-                    
-                    # Check if this is the "Total" row to apply bold format
-                    is_total_row = str(row_data["ward"]).strip() == "Total"
-                    fmt_to_use = total_row_fmt if is_total_row else data_fmt
-                    
+                    is_total = str(row_data["ward"]).strip() == "Total"
+                    fmt = total_row_fmt if is_total else data_fmt
                     for col_num in range(len(final_order)):
-                        val = row_data[final_order[col_num]]
-                        worksheet.write(current_row_idx, col_num, val, fmt_to_use)
+                        worksheet.write(row_num + 3, col_num, row_data[final_order[col_num]], fmt)
 
-                # Column Widths
                 worksheet.set_column('A:A', 25)
-                worksheet.set_column('B:D', 18)
-                worksheet.set_column('E:E', 2) # Blank
-                worksheet.set_column('F:H', 18)
-                worksheet.set_column('I:I', 2) # Blank
+                worksheet.set_column('B:D', 18); worksheet.set_column('E:E', 2)
+                worksheet.set_column('F:H', 18); worksheet.set_column('I:I', 2)
                 worksheet.set_column('J:L', 18)
 
-            final_file_name = f"{formatted_date} IHIP S,P & L Status Report.xlsx"
-            st.download_button(
-                label=f"📥 Download {final_file_name}",
-                data=output.getvalue(),
-                file_name=final_file_name,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            st.download_button(f"📥 Download {formatted_date} Status Report", output.getvalue(), f"{formatted_date}_IHIP_Status_Report.xlsx")
     else:
         st.info("Upload S, P, and L files to begin.")
