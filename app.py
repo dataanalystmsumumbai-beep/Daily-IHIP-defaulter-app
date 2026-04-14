@@ -202,7 +202,7 @@ with tab1:
 
 
 # ----------------------------------------------------------------
-# TAB 2: CONSOLIDATED REPORTING SUMMARY (UPDATED WITH AVERAGE FOR %)
+# TAB 2: CONSOLIDATED REPORTING SUMMARY (STRICT AVERAGE FOR %)
 # ----------------------------------------------------------------
 import pandas as pd
 import streamlit as st
@@ -292,18 +292,25 @@ with tab2:
             
             export_df = master[final_order]
             is_not_mapped = export_df["ward"].str.lower().str.replace(" ", "") == "notmapped"
-            main_df = export_df[~is_not_mapped]
-            not_mapped_df = export_df[is_not_mapped]
+            main_df = export_df[~is_not_mapped].copy()
+            not_mapped_df = export_df[is_not_mapped].copy()
 
-            # --- Calculate Totals (Sum for Units, Average for Percentage) ---
+            # --- Calculation for Total Row ---
             sum_data = {"ward": "Total"}
             for col in final_order:
-                if col == "ward": continue
-                if "Units" in col:
-                    sum_data[col] = main_df[col].sum()
-                elif "%" in col:
-                    # Logic: Average of the column for the Total row
-                    sum_data[col] = round(main_df[col].mean(), 2)
+                if col == "ward" or "Blank" in col:
+                    continue
+                
+                # If column name has '%' then calculate Average
+                if "%" in col:
+                    # Explicitly using mean() for percentage columns
+                    avg_val = main_df[col].mean()
+                    sum_data[col] = round(float(avg_val), 2)
+                
+                # If column name has 'Units' then calculate Sum
+                elif "Units" in col:
+                    sum_data[col] = int(main_df[col].sum())
+                
                 else:
                     sum_data[col] = ""
             
@@ -313,7 +320,7 @@ with tab2:
             st.subheader("Consolidated Summary Preview")
             st.dataframe(final_display_df, use_container_width=True)
 
-            # --- Excel Export ---
+            # --- Excel Formatting & Download ---
             output = BytesIO()
             with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
                 final_display_df.to_excel(writer, index=False, sheet_name="Summary", startrow=3, header=False)
@@ -326,7 +333,7 @@ with tab2:
                 data_fmt = workbook.add_format({'border': 1, 'align': 'center'})
                 total_row_fmt = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'bg_color': '#EFEFEF'})
                 
-                # Titles
+                # Excel Layout
                 worksheet.merge_range('A1:L1', f"{formatted_date} IHIP S,P & L Reporting Status", title_fmt)
                 worksheet.merge_range('B2:D2', 'S-Form Status', header_fmt)
                 worksheet.merge_range('F2:H2', 'P-Form Status', header_fmt)
@@ -337,7 +344,7 @@ with tab2:
                            "Total Reporting Units", "% Of Average", "Non Reported Units"]
                 for i, h in enumerate(headers): worksheet.write(2, i, h, sub_fmt)
 
-                # Data Formatting
+                # Final borders and formatting
                 for row_num in range(len(final_display_df)):
                     row_data = final_display_df.iloc[row_num]
                     is_total = str(row_data["ward"]).strip() == "Total"
