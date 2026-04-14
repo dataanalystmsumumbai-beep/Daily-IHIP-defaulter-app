@@ -53,7 +53,6 @@ with tab1:
     def generate_formatted_excel(df, title, subtitle):
         buf = BytesIO()
         with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-            # Writing data starting from Row 3 (Index 2)
             df.to_excel(writer, index=False, startrow=2, sheet_name='Sheet1')
             
             workbook = writer.book
@@ -67,30 +66,28 @@ with tab1:
             
             num_cols = len(df.columns)
             
-            # Apply Title and Subtitle
+            # Apply Titles
             worksheet.merge_range(0, 0, 0, num_cols-1, title, fmt_title)
             worksheet.merge_range(1, 0, 1, num_cols-1, subtitle, fmt_sub)
             
-            # Apply Bold Header Formatting
+            # Apply Header Formatting
             for col_num, value in enumerate(df.columns.values):
                 worksheet.write(2, col_num, value, fmt_header)
             
-            # Apply Cell Borders and Middle Alignment to all data cells
-            # This logic avoids the TypeError by handling types safely
+            # Apply Borders and Alignment
             for row_num in range(len(df)):
                 for col_num in range(num_cols):
                     val = df.iloc[row_num, col_num]
-                    # Convert NaN to empty string to prevent XlsxWriter errors
                     if pd.isna(val):
                         worksheet.write(row_num + 3, col_num, "", fmt_cell)
                     else:
                         worksheet.write(row_num + 3, col_num, val, fmt_cell)
             
-            # Set Column Widths
+            # Column Widths
             worksheet.set_column(0, 0, 8)   # Sr No
             worksheet.set_column(1, 1, 15)  # Ward
             worksheet.set_column(2, 2, 40)  # Facility Name
-            worksheet.set_column(3, num_cols-1, 18) # Others
+            worksheet.set_column(3, num_cols-1, 20)
             
         return buf.getvalue()
 
@@ -98,7 +95,6 @@ with tab1:
     def process_file(file, form):
         try:
             df = pd.read_excel(file, engine='calamine')
-            # Check for header row
             if "facility name" not in str(df.columns).lower():
                 for i in range(len(df)):
                     if "facility name" in str(df.iloc[i]).lower():
@@ -150,16 +146,17 @@ with tab1:
         final_df["ward_sort"] = final_df["WARD"].apply(lambda x: "ZZZ" if x.strip().lower() == "not mentioned" else x)
         final_df = final_df.sort_values(["ward_sort", "Facility Name"]).drop(columns=["ward_sort"])
         
-        # --- Output 1 Display & Download ---
+        # --- Output 1 ---
         out1 = final_df.copy()
         out1.insert(0, "Sr No", range(1, len(out1)+1))
         st.subheader("Output 1")
         st.dataframe(out1, use_container_width=True)
 
         xlsx1 = generate_formatted_excel(out1, "IHIP Defaulter", formatted_date)
-        st.download_button("Download Output 1", xlsx1, f"{formatted_date}_Defaulter_List.xlsx")
+        # Updated Filename for Output 1
+        st.download_button("Download Output 1", xlsx1, f"{formatted_date}_IHIP Defaulter List of S, P & L Form.xlsx")
 
-        # --- Output 2 Conditional Logic (Only if Staff Names entered) ---
+        # --- Output 2 ---
         if staff_input:
             merged = final_df.copy()
             merged["key"] = merged["Facility Name"].astype(str).str.strip().str.lower()
@@ -170,20 +167,17 @@ with tab1:
                 n_c = next((c for c in cdf.columns if "facility" in c.lower()), None)
                 p_c = next((c for c in cdf.columns if "contact" in c.lower()), None)
                 m_c = next((c for c in cdf.columns if "mobile" in c.lower()), None)
-                
                 if n_c and p_c and m_c:
                     cdf["key"] = cdf[n_c].astype(str).str.strip().str.lower()
                     merged = merged.merge(cdf[["key", p_c, m_c]], on="key", how="left")
                     merged.rename(columns={p_c: "Contact Person Name", m_c: "Mobile Number"}, inplace=True)
             
-            # Fill missing contact info
             for col in ["Contact Person Name", "Mobile Number"]:
                 if col not in merged.columns: merged[col] = ""
             
             merged["Mobile Number"] = merged["Mobile Number"].astype(str).str.replace(".0", "", regex=False).replace(["nan",""], "Not Available")
             merged["Contact Person Name"] = merged["Contact Person Name"].replace(["nan",""], "Not Available")
 
-            # Staff Assignment Logic
             staff_list = [s.strip() for s in staff_input.split(",") if s.strip()]
             n, k = len(merged), len(staff_list)
             if k > 0:
@@ -199,11 +193,12 @@ with tab1:
             out2.insert(0, "Sr No", range(1, len(out2)+1))
             
             st.markdown("---")
-            st.subheader("Output 2 (Staff Assignment)")
+            st.subheader("Output 2")
             st.dataframe(out2, use_container_width=True)
             
-            xlsx2 = generate_formatted_excel(out2, "IHIP Defaulter List with Assignments", report_datetime)
-            st.download_button("Download Output 2", xlsx2, f"Staff_Assignment_{formatted_date}.xlsx")
+            xlsx2 = generate_formatted_excel(out2, "IHIP Defaulter List of S, P & L Form", report_datetime)
+            # Updated Filename for Output 2
+            st.download_button("Download Output 2", xlsx2, f"IHIP Defaulter List of S, P & L Form of _{report_datetime}.xlsx")
 
 
 # ----------------------------------------------------------------
