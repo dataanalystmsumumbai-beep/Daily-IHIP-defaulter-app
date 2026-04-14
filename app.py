@@ -10,8 +10,13 @@ st.set_page_config(page_title="IHIP Defaulter & Summary Tool", layout="wide")
 tab1, tab2 = st.tabs(["Defaulter Analysis", "Reporting Summary"])
 
 # ----------------------------------------------------------------
-# TAB 1: DAILY DEFAULTER ANALYSIS (WITH TYPABLE TIME INPUTS)
+# TAB 1: DAILY DEFAULTER ANALYSIS (UPDATED WITH FORMATTING & LOGIC)
 # ----------------------------------------------------------------
+import pandas as pd
+import streamlit as st
+from io import BytesIO
+import datetime
+
 with tab1:
     st.title("Daily IHIP Defaulter Analysis")
     
@@ -25,159 +30,148 @@ with tab1:
     contact_file = st.file_uploader("Upload Contact File", type=["xlsx"], key="cont_def")
     staff_input = st.text_input("Enter Staff Names (comma separated) i.e. A,B,C", key="staff_def")
     
-    # ---------------- DATE & TIME INPUTS (TYPABLE) ----------------
+    # ---------------- DATE & TIME INPUTS ----------------
     icol1, icol2 = st.columns([2, 3])
-    
-    # Date Selection
     report_date_obj = icol1.date_input("Select Report Date", datetime.date.today(), key="date_input_def")
     formatted_date = report_date_obj.strftime("%d-%m-%Y")
     day_name = report_date_obj.strftime("%A")
     
-    # Time Inputs: HH and MM are typable, AM/PM is selectable
     icol2.write("Enter Report Time")
-    t_col1, t_col2, t_col3 = icol2.columns(3)
-    hr_val = t_col1.text_input("HH", value="04", key="hr_t1")
-    mn_val = t_col2.text_input("MM", value="05", key="mn_t1")
-    am_pm = t_col3.selectbox("AM/PM", ["am", "pm"], index=1, key="ap_t1")
+    t1, t2, t3 = icol2.columns(3)
+    hr_val = t1.text_input("HH", value="04", key="hr_t1")
+    mn_val = t2.text_input("MM", value="05", key="mn_t1")
+    am_pm = t3.selectbox("AM/PM", ["am", "pm"], index=1, key="ap_t1")
     
-    # Auto-format: adds leading zero if you type single digit (e.g., 4 becomes 04)
-    hr_str = hr_val.zfill(2)
-    mn_str = mn_val.zfill(2)
-    formatted_time = f"{hr_str}.{mn_str}{am_pm}"
-    
-    # Final String for Excel Headers
+    formatted_time = f"{hr_val.zfill(2)}.{mn_val.zfill(2)}{am_pm}"
     report_datetime = f"{day_name} {formatted_date} till {formatted_time}"
     
     # ---------------- PROCESS LOGIC ----------------
     def process_file(file, form):
         try:
-            # Using calamine as it's safer for IHIP formatting
             df = pd.read_excel(file, engine='calamine')
-        except:
-            df = pd.read_excel(file)
+            if "facility name" not in str(df.columns).lower():
+                for i in range(len(df)):
+                    if "facility name" in str(df.iloc[i]).lower():
+                        df.columns = df.iloc[i]
+                        df = df[i+1:].reset_index(drop=True)
+                        break
+            df.columns = [str(c).strip() for c in df.columns]
+            def find_col(k): return next((c for c in df.columns if k in str(c).lower()), None)
+            
+            name, subtype, report = find_col("facility name"), find_col("facility sub-type"), find_col("number of times reported")
+            ward = next((c for c in df.columns if "ward" in str(c).lower() or "zone" in str(c).lower()), None)
+            
+            if not (name and subtype and report): return pd.DataFrame()
+            
+            df[report] = pd.to_numeric(df[report], errors="coerce")
+            df = df[df[report].fillna(0) == 0].copy()
+            
+            category_map = {
+                "Dispensary": "PUBLIC", "Government Medical College Hospital": "PUBLIC",
+                "IGSL Satellite Laboratory": "PUBLIC", "Infectious Disease Hospital": "PUBLIC",
+                "Municipal Hospital": "PUBLIC", "Other Government Hospitals": "PUBLIC",
+                "Urban Primary Health Centre": "PUBLIC", "Health Post": "PUBLIC",
+                "Health Sub Centre": "PUBLIC", "Private Hospital": "PRIVATE",
+                "Private Laboratory": "PRIVATE"
+            }
+            df["Category"] = df[subtype].map(category_map).fillna("OTHER")
+            
+            out = pd.DataFrame()
+            out["WARD"] = df[ward].fillna("Not Mentioned") if ward else "Not Mentioned"
+            out["Facility Name"] = df[name]
+            out["Form Type"] = form
+            out["Category"] = df["Category"]
+            out["REMARK"] = ""
+            return out
+        except: return pd.DataFrame()
 
-        # Find header row if not at 0
-        if "facility name" not in str(df.columns).lower():
-            for i in range(len(df)):
-                if "facility name" in str(df.iloc[i]).lower():
-                    df.columns = df.iloc[i]
-                    df = df[i+1:].reset_index(drop=True)
-                    break
-
-        df.columns = [str(c).strip() for c in df.columns]
-        
-        def find_col(k):
-            return next((c for c in df.columns if k in str(c).lower()), None)
-        
-        name = find_col("facility name")
-        subtype = find_col("facility sub-type")
-        report = find_col("number of times reported")
-        ward = next((c for c in df.columns if "ward" in str(c).lower() or "zone" in str(c).lower()), None)
-        
-        if not (name and subtype and report):
-            return pd.DataFrame()
-        
-        df[report] = pd.to_numeric(df[report], errors="coerce")
-        df = df[df[report].fillna(0) == 0].copy()
-        
-        category_map = {
-            "Dispensary": "PUBLIC", "Government Medical College Hospital": "PUBLIC",
-            "IGSL Satellite Laboratory": "PUBLIC", "Infectious Disease Hospital": "PUBLIC",
-            "Municipal Hospital": "PUBLIC", "Other Government Hospitals": "PUBLIC",
-            "Urban Primary Health Centre": "PUBLIC", "Health Post": "PUBLIC",
-            "Health Sub Centre": "PUBLIC", "Private Hospital": "PRIVATE",
-            "Private Laboratory": "PRIVATE"
-        }
-        df["Category"] = df[subtype].map(category_map).fillna("OTHER")
-        
-        out = pd.DataFrame()
-        out["WARD"] = df[ward].fillna("Not Mentioned") if ward else "Not Mentioned"
-        out["Facility Name"] = df[name]
-        out["Form Type"] = form
-        out["Category"] = df["Category"]
-        out["REMARK"] = ""
-        return out
-
-    # ---------------- MAIN EXECUTION ----------------
+    # ---------------- EXECUTION ----------------
     dfs = []
     if s_file: dfs.append(process_file(s_file, "S FORM"))
     if p_file: dfs.append(process_file(p_file, "P FORM"))
     if l_file: dfs.append(process_file(l_file, "L FORM"))
 
-    if dfs:
-        dfs = [d for d in dfs if not d.empty]
-        if dfs:
-            final_df = pd.concat(dfs, ignore_index=True)
-            final_df["WARD"] = final_df["WARD"].fillna("Not Mentioned").astype(str)
-            final_df["ward_sort"] = final_df["WARD"].apply(lambda x: "ZZZ" if x.strip().lower() == "not mentioned" else x)
-            final_df = final_df.sort_values(["ward_sort", "Facility Name"]).drop(columns=["ward_sort"])
-            
-            out1 = final_df.copy()
-            out1.insert(0, "Sr No", range(1, len(out1)+1))
-            st.subheader("Output 1")
-            st.dataframe(out1, use_container_width=True)
+    if any(not d.empty for d in dfs):
+        final_df = pd.concat([d for d in dfs if not d.empty], ignore_index=True)
+        final_df["WARD"] = final_df["WARD"].fillna("Not Mentioned").astype(str)
+        final_df["ward_sort"] = final_df["WARD"].apply(lambda x: "ZZZ" if x.strip().lower() == "not mentioned" else x)
+        final_df = final_df.sort_values(["ward_sort", "Facility Name"]).drop(columns=["ward_sort"])
+        
+        # --- Output 1 Processing ---
+        out1 = final_df.copy()
+        out1.insert(0, "Sr No", range(1, len(out1)+1))
+        st.subheader("Output 1")
+        st.dataframe(out1, use_container_width=True)
 
+        def generate_formatted_excel(df, title, subtitle):
+            buf = BytesIO()
+            # Use xlsxwriter for advanced formatting
+            with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+                df.to_excel(writer, index=False, startrow=2, header=False, sheet_name='Sheet1')
+                workbook = writer.book
+                worksheet = writer.sheets['Sheet1']
+                
+                # Formats
+                fmt_title = workbook.add_format({'bold':True, 'align':'center', 'valign':'vcenter', 'bg_color':'#E7E6E6', 'border':1})
+                fmt_sub = workbook.add_format({'bold':True, 'align':'center', 'valign':'vcenter', 'bg_color':'#F2F2F2', 'border':1})
+                fmt_header = workbook.add_format({'bold':True, 'align':'center', 'valign':'vcenter', 'border':1, 'bg_color':'#D9EAD3'})
+                fmt_cell = workbook.add_format({'align':'center', 'valign':'vcenter', 'border':1})
+                
+                # Title & Subtitle Rows
+                num_cols = len(df.columns)
+                worksheet.merge_range(0, 0, 0, num_cols-1, title, fmt_title)
+                worksheet.merge_range(1, 0, 1, num_cols-1, subtitle, fmt_sub)
+                
+                # Column Headers
+                for col_num, value in enumerate(df.columns.values):
+                    worksheet.write(2, col_num, value, fmt_header)
+                
+                # Data Rows Border & Alignment
+                for row_num in range(len(df)):
+                    for col_num in range(num_cols):
+                        val = df.iloc[row_num, col_num]
+                        worksheet.write(row_num + 3, col_num, val, fmt_cell)
+                
+                worksheet.set_column(0, num_cols-1, 15)
+                worksheet.set_column(2, 2, 25) # Facility Name column width
+            return buf.getvalue()
+
+        st.download_button("Download Output 1", generate_formatted_excel(out1, "IHIP Defaulter", formatted_date), f"{formatted_date}_Output1.xlsx")
+
+        # --- Conditional Output 2 ---
+        if staff_input:
             merged = final_df.copy()
             merged["key"] = merged["Facility Name"].astype(str).str.strip().str.lower()
             if contact_file:
                 cdf = pd.read_excel(contact_file)
                 cdf.columns = [str(c).strip() for c in cdf.columns]
-                name_c = next((c for c in cdf.columns if "facility" in c.lower()), None)
-                person = next((c for c in cdf.columns if "contact" in c.lower()), None)
-                mobile = next((c for c in cdf.columns if "mobile" in c.lower()), None)
-                if name_c and person and mobile:
-                    cdf["key"] = cdf[name_c].astype(str).str.strip().str.lower()
-                    merged = merged.merge(cdf[["key", person, mobile]], on="key", how="left")
-                    merged.rename(columns={person: "Contact Person Name", mobile: "Mobile Number"}, inplace=True)
+                n_c, p_c, m_c = next((c for c in cdf.columns if "facility" in c.lower()), None), next((c for c in cdf.columns if "contact" in c.lower()), None), next((c for c in cdf.columns if "mobile" in c.lower()), None)
+                if n_c and p_c and m_c:
+                    cdf["key"] = cdf[n_c].astype(str).str.strip().str.lower()
+                    merged = merged.merge(cdf[["key", p_c, m_c]], on="key", how="left")
+                    merged.rename(columns={p_c: "Contact Person Name", m_c: "Mobile Number"}, inplace=True)
             
-            if "Mobile Number" in merged.columns:
-                merged["Mobile Number"] = merged["Mobile Number"].astype(str).str.replace(".0", "", regex=False)
             for col in ["Contact Person Name", "Mobile Number"]:
                 if col not in merged.columns: merged[col] = ""
-            merged["Contact Person Name"] = merged["Contact Person Name"].astype(str).replace(["nan",""], "Not Available")
-            merged["Mobile Number"] = merged["Mobile Number"].astype(str).replace(["nan",""], "Not Available")
-
-            if staff_input:
-                staff = [s.strip() for s in staff_input.split(",") if s.strip()]
-                n, k = len(merged), len(staff)
-                if k > 0:
-                    base, extra = n // k, n % k
-                    assigned = []
-                    for i, s in enumerate(staff):
-                        count = base + (extra if i == k - 1 else 0)
-                        assigned.extend([s] * count)
-                    merged["Assigned Staff"] = assigned
-            else:
-                merged["Assigned Staff"] = "Not Assigned"
-
+            merged["Mobile Number"] = merged["Mobile Number"].astype(str).str.replace(".0", "", regex=False).replace(["nan",""], "Not Available")
+            
+            staff = [s.strip() for s in staff_input.split(",") if s.strip()]
+            n, k = len(merged), len(staff)
+            if k > 0:
+                base, extra = n // k, n % k
+                assigned = []
+                for i, s in enumerate(staff):
+                    count = base + (extra if i == k - 1 else 0)
+                    assigned.extend([s] * count)
+                merged["Assigned Staff"] = assigned
+            
             merged.drop(columns=["key"], inplace=True)
-            out2 = merged.copy()
-            out2.insert(0, "Sr No", range(1, len(out2)+1))
+            out2 = merged.copy(); out2.insert(0, "Sr No", range(1, len(out2)+1))
             st.subheader("Output 2")
             st.dataframe(out2, use_container_width=True)
+            
+            st.download_button("Download Output 2", generate_formatted_excel(out2, "IHIP Defaulter List of S, P & L Form", report_datetime), f"Output2_{formatted_date}.xlsx")
 
-            # Excel Generators
-            def generate_output1_excel(df):
-                buf = BytesIO()
-                with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-                    df.to_excel(writer, index=False, startrow=2)
-                    ws = writer.sheets['Sheet1']
-                    ws.merge_cells('A1:F1'); ws['A1'] = "IHIP Defaulter"
-                    ws.merge_cells('A2:F2'); ws['A2'] = formatted_date
-                return buf.getvalue()
-
-            def generate_output2_excel(df, dt_str):
-                buf = BytesIO()
-                with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-                    df.to_excel(writer, index=False, startrow=2)
-                    ws = writer.sheets['Sheet1']
-                    ws.merge_cells('A1:I1'); ws['A1'] = "IHIP Defaulter List of S, P & L Form"
-                    ws.merge_cells('A2:I2'); ws['A2'] = dt_str
-                    for row in range(4, ws.max_row + 1): ws[f'G{row}'].number_format = '@'
-                return buf.getvalue()
-
-            st.download_button("Download Output 1", generate_output1_excel(out1), f"{formatted_date}_IHIP Defaulter List.xlsx")
-            st.download_button("Download Output 2", generate_output2_excel(out2, report_datetime), f"IHIP Defaulter List_{report_datetime}.xlsx")
 
 # ----------------------------------------------------------------
 # TAB 2: CONSOLIDATED REPORTING SUMMARY (FINAL WITH BOLD TOTAL & BORDERS)
