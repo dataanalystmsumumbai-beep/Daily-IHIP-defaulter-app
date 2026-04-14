@@ -10,7 +10,7 @@ st.set_page_config(page_title="IHIP Defaulter & Summary Tool", layout="wide")
 tab1, tab2 = st.tabs(["Defaulter Analysis", "Reporting Summary"])
 
 # ----------------------------------------------------------------
-# TAB 1: ORIGINAL DEFAULTER ANALYSIS CODE (UPDATED DATE/TIME INPUTS)
+# TAB 1: DAILY DEFAULTER ANALYSIS (WITH TYPABLE TIME INPUTS)
 # ----------------------------------------------------------------
 with tab1:
     st.title("Daily IHIP Defaulter Analysis")
@@ -25,25 +25,33 @@ with tab1:
     contact_file = st.file_uploader("Upload Contact File", type=["xlsx"], key="cont_def")
     staff_input = st.text_input("Enter Staff Names (comma separated) i.e. A,B,C", key="staff_def")
     
-    # ---------------- UPDATED INPUTS (LIKE TAB 2) ----------------
-    icol1, icol2 = st.columns(2)
+    # ---------------- DATE & TIME INPUTS (TYPABLE) ----------------
+    icol1, icol2 = st.columns([2, 3])
     
     # Date Selection
     report_date_obj = icol1.date_input("Select Report Date", datetime.date.today(), key="date_input_def")
     formatted_date = report_date_obj.strftime("%d-%m-%Y")
     day_name = report_date_obj.strftime("%A")
     
-    # Time Selection
-    report_time_obj = icol2.time_input("Select Report Time", key="time_input_def")
-    formatted_time = report_time_obj.strftime("%I.%M%p").lower() # e.g. 04.05pm
+    # Time Inputs: HH and MM are typable, AM/PM is selectable
+    icol2.write("Enter Report Time")
+    t_col1, t_col2, t_col3 = icol2.columns(3)
+    hr_val = t_col1.text_input("HH", value="04", key="hr_t1")
+    mn_val = t_col2.text_input("MM", value="05", key="mn_t1")
+    am_pm = t_col3.selectbox("AM/PM", ["am", "pm"], index=1, key="ap_t1")
     
-    # Final String for Excel
+    # Auto-format: adds leading zero if you type single digit (e.g., 4 becomes 04)
+    hr_str = hr_val.zfill(2)
+    mn_str = mn_val.zfill(2)
+    formatted_time = f"{hr_str}.{mn_str}{am_pm}"
+    
+    # Final String for Excel Headers
     report_datetime = f"{day_name} {formatted_date} till {formatted_time}"
     
-    # ---------------- PROCESS ----------------
+    # ---------------- PROCESS LOGIC ----------------
     def process_file(file, form):
         try:
-            # Using calamine here too as it's safer for IHIP styles
+            # Using calamine as it's safer for IHIP formatting
             df = pd.read_excel(file, engine='calamine')
         except:
             df = pd.read_excel(file)
@@ -90,16 +98,14 @@ with tab1:
         out["REMARK"] = ""
         return out
 
-    # ---------------- MAIN ----------------
+    # ---------------- MAIN EXECUTION ----------------
     dfs = []
     if s_file: dfs.append(process_file(s_file, "S FORM"))
     if p_file: dfs.append(process_file(p_file, "P FORM"))
     if l_file: dfs.append(process_file(l_file, "L FORM"))
 
     if dfs:
-        # Filter out empty dataframes
         dfs = [d for d in dfs if not d.empty]
-        
         if dfs:
             final_df = pd.concat(dfs, ignore_index=True)
             final_df["WARD"] = final_df["WARD"].fillna("Not Mentioned").astype(str)
@@ -150,7 +156,7 @@ with tab1:
             st.subheader("Output 2")
             st.dataframe(out2, use_container_width=True)
 
-            # Excel Generators using the formatted date and datetime
+            # Excel Generators
             def generate_output1_excel(df):
                 buf = BytesIO()
                 with pd.ExcelWriter(buf, engine='openpyxl') as writer:
@@ -170,16 +176,8 @@ with tab1:
                     for row in range(4, ws.max_row + 1): ws[f'G{row}'].number_format = '@'
                 return buf.getvalue()
 
-            st.download_button(
-                label="Download Output 1", 
-                data=generate_output1_excel(out1), 
-                file_name=f"{formatted_date}_IHIP Defaulter List.xlsx"
-            )
-            st.download_button(
-                label="Download Output 2", 
-                data=generate_output2_excel(out2, report_datetime), 
-                file_name=f"IHIP Defaulter List_{report_datetime}.xlsx"
-            )
+            st.download_button("Download Output 1", generate_output1_excel(out1), f"{formatted_date}_IHIP Defaulter List.xlsx")
+            st.download_button("Download Output 2", generate_output2_excel(out2, report_datetime), f"IHIP Defaulter List_{report_datetime}.xlsx")
 
 # ----------------------------------------------------------------
 # TAB 2: CONSOLIDATED REPORTING SUMMARY (FINAL WITH BOLD TOTAL & BORDERS)
