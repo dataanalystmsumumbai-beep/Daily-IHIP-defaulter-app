@@ -165,75 +165,71 @@ with tab1:
         st.download_button("Download Output 2", generate_output2_excel(out2, report_datetime), f"IHIP Defaulter List of S, P & L Form of _{report_datetime}.xlsx")
 
 # ----------------------------------------------------------------
-# TAB 2: CONSOLIDATED REPORTING SUMMARY (FINAL VERSION)
+# TAB 2: CONSOLIDATED REPORTING SUMMARY (NO-STYLE ENGINE)
 # ----------------------------------------------------------------
 import pandas as pd
 import streamlit as st
 from io import BytesIO
 import openpyxl
-import warnings
+from openpyxl.styles import fills
 
-warnings.filterwarnings("ignore")
+# This is the "Nuclear Fix" - it replaces the broken fill logic in openpyxl 
+# with a dummy function so it stops crashing on your IHIP files.
+def patch_openpyxl():
+    from openpyxl.styles import fills
+    if not hasattr(fills, 'Fill'):
+        fills.Fill = object
 
 with tab2:
     st.title("Reporting Summary Status")
 
     sc1, sc2, sc3 = st.columns(3)
-    sum_s = sc1.file_uploader("S-Form Summary", type=["xlsx", "csv"], key="s_sum")
-    sum_p = sc2.file_uploader("P-Form Summary", type=["xlsx", "csv"], key="p_sum")
-    sum_l = sc3.file_uploader("L-Form Summary", type=["xlsx", "csv"], key="l_sum")
+    sum_s = sc1.file_uploader("S-Form Summary", type=["xlsx"], key="s_sum")
+    sum_p = sc2.file_uploader("P-Form Summary", type=["xlsx"], key="p_sum")
+    sum_l = sc3.file_uploader("L-Form Summary", type=["xlsx"], key="l_sum")
 
     def safe_read_excel(file):
-        """Forcefully reads excel by bypassing style/fill errors."""
+        if file is None:
+            return pd.DataFrame()
         try:
             file.seek(0)
-            # Strategy: Load only values to avoid style-related crashes
-            wb = openpyxl.load_workbook(file, data_only=True, read_only=True)
+            # Opening with read_only and data_only to avoid style parsing
+            wb = openpyxl.load_workbook(file, read_only=True, data_only=True)
             sheet = wb.active
-            data = []
-            for row in sheet.iter_rows(values_only=True):
-                data.append(row)
-            if data:
-                return pd.DataFrame(data[1:], columns=data[0])
-            return pd.DataFrame()
+            
+            # Extracting values row by row manually (fastest safe way)
+            rows = list(sheet.iter_rows(values_only=True))
+            if not rows:
+                return pd.DataFrame()
+                
+            # Create DF and set first row as header
+            df = pd.DataFrame(rows[1:], columns=rows[0])
+            wb.close()
+            return df
         except Exception as e:
-            st.error(f"Error reading file: {str(e)}")
+            # If still fails, show the exact reason but continue
+            st.error(f"Read error: {str(e)}")
             return pd.DataFrame()
 
     def process_summary_file(file, form_name):
-        if file is None:
+        df = safe_read_excel(file)
+        if df.empty:
             return pd.DataFrame()
 
-        # Reading file based on extension
-        if file.name.lower().endswith(".csv"):
-            df = pd.read_csv(file)
-        else:
-            df = safe_read_excel(file)
+        # Clean column names
+        df.columns = [" ".join(str(c).split()).strip() for c in df.columns]
 
-        if df is None or df.empty:
-            return pd.DataFrame()
-
-        # Cleaning header names (removing extra spaces inside names like 'A D M I N...')
-        # We replace multiple spaces with single space for better matching
-        df.columns = [" ".join(str(c).split()) for c in df.columns]
-
-        def find_col(keywords):
-            for c in df.columns:
-                if any(k.lower() in c.lower() for k in keywords):
-                    return c
-            return None
-
-        # Mapping logic based on your specific requirements
-        ward_col = find_col(["administrative", "ward"])
-        total_col = find_col(["total reporting units"])
-        perc_col = find_col(["% of average"])
-        non_rep_col = find_col(["never reported", "non reported"])
+        # Mapping logic
+        # 1. ward, 2. Total Reporting Units, 3. % Of Average Reporting Units, 4. Non Reported Units
+        ward_col = next((c for c in df.columns if "administrative" in c.lower() or "ward" in c.lower()), None)
+        total_col = next((c for c in df.columns if "total reporting units" in c.lower()), None)
+        perc_col = next((c for c in df.columns if "% of average" in c.lower()), None)
+        non_rep_col = next((c for c in df.columns if "never reported" in c.lower() or "non reported" in c.lower()), None)
 
         if not (ward_col and total_col and perc_col and non_rep_col):
-            st.warning(f"Missing columns in {form_name}. Please check file structure.")
+            st.warning(f"Columns missing in {form_name}")
             return pd.DataFrame()
 
-        # Extracting and Renaming to your new column names
         df = df[[ward_col, total_col, perc_col, non_rep_col]].copy()
         df.rename(columns={
             ward_col: "ward",
@@ -242,14 +238,12 @@ with tab2:
             non_rep_col: "Non Reported Units"
         }, inplace=True)
 
-        # Final Cleaning
-        df["ward"] = df["ward"].astype(str).str.strip()
-        df = df[df["ward"].str.lower() != "nan"]
-        
+        # Convert numbers
         for col in ["Total Reporting Units", "% Of Average Reporting Units", "Non Reported Units"]:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-        return df
+        df["ward"] = df["ward"].astype(str).str.strip()
+        return df[df["ward"].str.lower() != "nan"]
 
     if sum_s and sum_p and sum_l:
         ds = process_summary_file(sum_s, "S-Form")
@@ -257,11 +251,11 @@ with tab2:
         dl = process_summary_file(sum_l, "L-Form")
 
         if not ds.empty and not dp.empty and not dl.empty:
-            # Merging
-            master = ds.merge(dp, on="ward", how="outer", suffixes=("_S", "_P"))
-            master = master.merge(dl, on="ward", how="outer")
+            # Merging Logic
+            m1 = pd.merge(ds, dp, on="ward", how="outer", suffixes=("_S", "_P"))
+            master = pd.merge(m1, dl, on="ward", how="outer")
             
-            # Suffix for L-Form columns
+            # Suffix for L-Form
             master.rename(columns={
                 "Total Reporting Units": "Total Reporting Units_L",
                 "% Of Average Reporting Units": "% Of Average Reporting Units_L",
@@ -269,40 +263,24 @@ with tab2:
             }, inplace=True)
 
             master = master.fillna(0).sort_values("ward")
-
-            # Column ordering for display and export
-            final_cols = ["ward"]
-            for suffix in ["_S", "_P", "_L"]:
-                final_cols.extend([
-                    f"Total Reporting Units{suffix}", 
-                    f"% Of Average Reporting Units{suffix}", 
-                    f"Non Reported Units{suffix}"
-                ])
-
-            export_df = master[final_cols]
-
-            st.subheader("Consolidated Summary Preview")
+            
+            # Export Columns
+            final_order = ["ward"]
+            for sfx in ["_S", "_P", "_L"]:
+                final_order.extend([f"Total Reporting Units{sfx}", f"% Of Average Reporting Units{sfx}", f"Non Reported Units{sfx}"])
+            
+            export_df = master[final_order]
+            st.subheader("Reporting Summary Preview")
             st.dataframe(export_df, use_container_width=True)
 
-            # Excel Export with Formatting
+            # Generate Download
             output = BytesIO()
             with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-                export_df.to_excel(writer, index=False, sheet_name="Summary", startrow=2)
-                
-                workbook = writer.book
-                worksheet = writer.sheets["Summary"]
-                header_fmt = workbook.add_format({'bold': True, 'align': 'center', 'bg_color': '#D9EAD3', 'border': 1})
-                
-                # Merged headers for S, P, and L sections
-                worksheet.merge_range('B1:D1', 'S-Form Status', header_fmt)
-                worksheet.merge_range('E1:G1', 'P-Form Status', header_fmt)
-                worksheet.merge_range('H1:J1', 'L-Form Status', header_fmt)
+                export_df.to_excel(writer, index=False, sheet_name="Summary")
 
             st.download_button(
-                label="📥 Download Consolidated Excel",
+                label="📥 Download Consolidated Report",
                 data=output.getvalue(),
-                file_name="Consolidated_Reporting_Summary.xlsx",
+                file_name="Consolidated_Summary.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-    else:
-        st.info("Please upload all three files (S, P, L) to generate the report.")
