@@ -359,6 +359,6 @@ with tab2:
                 worksheet.set_column('F:H', 18); worksheet.set_column('I:I', 2)
                 worksheet.set_column('J:L', 18)
 
-            st.download_button(f"📥 Download {formatted_date} Status Report", output.getvalue(), f"{formatted_date}_IHIP_Status_Report.xlsx")
+            st.download_button(f"📥 Download {formatted_date} Status Report", output.getvalue(), f"{formatted_date}_IHIP S,P & L Status Report.xlsx")
     else:
         st.info("Upload S, P, and L files to begin.")
