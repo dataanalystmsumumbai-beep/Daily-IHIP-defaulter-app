@@ -202,7 +202,7 @@ with tab1:
 
 
 # ----------------------------------------------------------------
-# TAB 2: CONSOLIDATED REPORTING SUMMARY (STRICT AVERAGE FOR %)
+# TAB 2: CONSOLIDATED REPORTING SUMMARY (STRICT ERROR FIX)
 # ----------------------------------------------------------------
 import pandas as pd
 import streamlit as st
@@ -290,39 +290,35 @@ with tab2:
                 "Total Reporting Units_L", "% Of Average Reporting Units_L", "Non Reported Units_L"
             ]
             
-            export_df = master[final_order]
+            export_df = master[final_order].copy()
             is_not_mapped = export_df["ward"].str.lower().str.replace(" ", "") == "notmapped"
             main_df = export_df[~is_not_mapped].copy()
             not_mapped_df = export_df[is_not_mapped].copy()
 
-            # --- Calculation for Total Row ---
+            # --- Proper Average/Sum Calculation ---
             sum_data = {"ward": "Total"}
             for col in final_order:
                 if col == "ward" or "Blank" in col:
+                    sum_data[col] = ""
                     continue
-                
-                # If column name has '%' then calculate Average
                 if "%" in col:
-                    # Explicitly using mean() for percentage columns
-                    avg_val = main_df[col].mean()
-                    sum_data[col] = round(float(avg_val), 2)
-                
-                # If column name has 'Units' then calculate Sum
+                    sum_data[col] = round(float(main_df[col].mean()), 2)
                 elif "Units" in col:
                     sum_data[col] = int(main_df[col].sum())
-                
-                else:
-                    sum_data[col] = ""
             
             total_df = pd.DataFrame([sum_data])
+            # Resetting 'ward' for total specifically
+            total_df.at[0, "ward"] = "Total"
+            
             final_display_df = pd.concat([main_df, total_df, not_mapped_df], ignore_index=True)
 
             st.subheader("Consolidated Summary Preview")
             st.dataframe(final_display_df, use_container_width=True)
 
-            # --- Excel Formatting & Download ---
+            # --- Secure Excel Export ---
             output = BytesIO()
             with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+                # Writing empty to start to avoid formatting conflicts
                 final_display_df.to_excel(writer, index=False, sheet_name="Summary", startrow=3, header=False)
                 workbook, worksheet = writer.book, writer.sheets["Summary"]
                 
@@ -333,7 +329,7 @@ with tab2:
                 data_fmt = workbook.add_format({'border': 1, 'align': 'center'})
                 total_row_fmt = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'bg_color': '#EFEFEF'})
                 
-                # Excel Layout
+                # Headers
                 worksheet.merge_range('A1:L1', f"{formatted_date} IHIP S,P & L Reporting Status", title_fmt)
                 worksheet.merge_range('B2:D2', 'S-Form Status', header_fmt)
                 worksheet.merge_range('F2:H2', 'P-Form Status', header_fmt)
@@ -344,13 +340,19 @@ with tab2:
                            "Total Reporting Units", "% Of Average", "Non Reported Units"]
                 for i, h in enumerate(headers): worksheet.write(2, i, h, sub_fmt)
 
-                # Final borders and formatting
+                # --- Error-Safe Write Loop ---
                 for row_num in range(len(final_display_df)):
                     row_data = final_display_df.iloc[row_num]
                     is_total = str(row_data["ward"]).strip() == "Total"
                     fmt = total_row_fmt if is_total else data_fmt
+                    
                     for col_num in range(len(final_order)):
-                        worksheet.write(row_num + 3, col_num, row_data[final_order[col_num]], fmt)
+                        val = row_data[final_order[col_num]]
+                        # Safety Check: Replace NaN with empty string
+                        if pd.isna(val):
+                            worksheet.write(row_num + 3, col_num, "", fmt)
+                        else:
+                            worksheet.write(row_num + 3, col_num, val, fmt)
 
                 worksheet.set_column('A:A', 25)
                 worksheet.set_column('B:D', 18); worksheet.set_column('E:E', 2)
