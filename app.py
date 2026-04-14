@@ -165,14 +165,19 @@ with tab1:
         st.download_button("Download Output 2", generate_output2_excel(out2, report_datetime), f"IHIP Defaulter List of S, P & L Form of _{report_datetime}.xlsx")
 
 # ----------------------------------------------------------------
-# TAB 2: CONSOLIDATED REPORTING SUMMARY (FUZZY COLUMN MATCHING)
+# TAB 2: CONSOLIDATED REPORTING SUMMARY (FINAL WITH FORMATTING)
 # ----------------------------------------------------------------
 import pandas as pd
 import streamlit as st
 from io import BytesIO
+import datetime
 
 with tab2:
     st.title("Reporting Summary Status")
+
+    # 1. Date Input for Title and Filename
+    report_date = st.date_input("Select Report Date", datetime.date.today())
+    formatted_date = report_date.strftime("%d-%m-%Y")
 
     sc1, sc2, sc3 = st.columns(3)
     sum_s = sc1.file_uploader("S-Form Summary", type=["xlsx"], key="s_sum")
@@ -183,18 +188,11 @@ with tab2:
         if file is None: return pd.DataFrame()
         try:
             file.seek(0)
-            # engine="calamine" handles the style errors
             df = pd.read_excel(file, engine="calamine")
-            
-            # Logic: If the first few rows are empty or headers are not found, 
-            # we try to find the row that actually contains our keywords.
             if df.empty: return df
-            
-            # If the first row looks like junk (all Unnamed), try next row
             if all("Unnamed" in str(c) for c in df.columns[:2]):
                 df.columns = df.iloc[0]
                 df = df[1:].reset_index(drop=True)
-                
             return df
         except Exception as e:
             st.error(f"Read error: {str(e)}")
@@ -204,34 +202,25 @@ with tab2:
         df = safe_read_excel(file)
         if df.empty: return pd.DataFrame()
 
-        # Fuzzy Match Logic: Remove all spaces and lowercase for matching
-        # Example: "A D M I N..." becomes "administrativeward"
         raw_cols = {c: str(c).replace(" ", "").lower() for c in df.columns}
-
         def find_fuzzy_col(keywords):
             for original_name, clean_name in raw_cols.items():
                 if any(k in clean_name for k in keywords):
                     return original_name
             return None
 
-        # Searching for your 4 columns using keywords
         ward_col = find_fuzzy_col(["admin", "ward"])
         total_col = find_fuzzy_col(["totalreporting"])
         perc_col = find_fuzzy_col(["%ofaverage", "averagereporting"])
         non_rep_col = find_fuzzy_col(["neverreported", "nonreported"])
 
-        # Debug: If columns not found, show the user what we found
         if not (ward_col and total_col and perc_col and non_rep_col):
             st.error(f"❌ Missing columns in {form_name}")
-            with st.expander(f"See detected columns for {form_name}"):
-                st.write(list(df.columns))
             return pd.DataFrame()
 
-        # Rename to your new standard names
         df = df[[ward_col, total_col, perc_col, non_rep_col]].copy()
         df.columns = ["ward", "Total Reporting Units", "% Of Average Reporting Units", "Non Reported Units"]
 
-        # Final Cleaning
         df["ward"] = df["ward"].astype(str).str.strip()
         df = df[df["ward"].str.lower() != "nan"]
         
@@ -246,11 +235,9 @@ with tab2:
         dl = process_summary_file(sum_l, "L-Form")
 
         if not ds.empty and not dp.empty and not dl.empty:
-            # Merging
             m1 = pd.merge(ds, dp, on="ward", how="outer", suffixes=("_S", "_P"))
             master = pd.merge(m1, dl, on="ward", how="outer")
             
-            # Suffix for L-Form
             master.rename(columns={
                 "Total Reporting Units": "Total Reporting Units_L",
                 "% Of Average Reporting Units": "% Of Average Reporting Units_L",
@@ -259,28 +246,94 @@ with tab2:
 
             master = master.fillna(0).sort_values("ward")
             
-            # Columns Order
-            final_order = ["ward"]
-            for sfx in ["_S", "_P", "_L"]:
-                final_order.extend([
-                    f"Total Reporting Units{sfx}", 
-                    f"% Of Average Reporting Units{sfx}", 
-                    f"Non Reported Units{sfx}"
-                ])
+            # 2. Add Blank Columns
+            master["Blank1"] = ""
+            master["Blank2"] = ""
+
+            final_order = [
+                "ward",
+                "Total Reporting Units_S", "% Of Average Reporting Units_S", "Non Reported Units_S",
+                "Blank1",
+                "Total Reporting Units_P", "% Of Average Reporting Units_P", "Non Reported Units_P",
+                "Blank2",
+                "Total Reporting Units_L", "% Of Average Reporting Units_L", "Non Reported Units_L"
+            ]
             
             export_df = master[final_order]
+
+            # 3. Handle 'Not Mapped' and 'Total' Calculation
+            # Find the 'Not Mapped' row
+            is_not_mapped = export_df["ward"].str.lower().str.replace(" ", "") == "notmapped"
+            not_mapped_df = export_df[is_not_mapped]
+            main_df = export_df[~is_not_mapped]
+
+            # Calculate Totals (Summing only units, leaving % and blanks empty)
+            sum_data = {"ward": "Total"}
+            for col in final_order:
+                if col == "ward": continue
+                if "Units" in col:
+                    sum_data[col] = main_df[col].sum()
+                else:
+                    sum_data[col] = "" # Leave %, Blank1, Blank2 empty
+            
+            total_df = pd.DataFrame([sum_data])
+
+            # Append Total first, then Not Mapped
+            export_df = pd.concat([main_df, total_df, not_mapped_df], ignore_index=True)
+
             st.subheader("Consolidated Summary Preview")
             st.dataframe(export_df, use_container_width=True)
 
-            # Download
+            # 4. Excel Export with Custom Formatting & Titles
             output = BytesIO()
             with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-                export_df.to_excel(writer, index=False, sheet_name="Summary")
+                # Start data from Row 4 (index 3) so we have room for custom headers
+                export_df.to_excel(writer, index=False, sheet_name="Summary", startrow=3, header=False)
+                
+                workbook = writer.book
+                worksheet = writer.sheets["Summary"]
+                
+                # Formats
+                title_fmt = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14})
+                header_fmt = workbook.add_format({'bold': True, 'align': 'center', 'bg_color': '#D9EAD3', 'border': 1})
+                sub_fmt = workbook.add_format({'bold': True, 'align': 'center', 'border': 1, 'text_wrap': True})
+
+                # Row 1: Main Title
+                main_title = f"{formatted_date} IHIP S,P & L Reporting Status"
+                worksheet.merge_range('A1:L1', main_title, title_fmt)
+
+                # Row 2: Form Headers
+                worksheet.merge_range('B2:D2', 'S-Form Status', header_fmt)
+                worksheet.merge_range('F2:H2', 'P-Form Status', header_fmt)
+                worksheet.merge_range('J2:L2', 'L-Form Status', header_fmt)
+
+                # Row 3: Column Sub-Headers
+                display_headers = [
+                    "Ward", 
+                    "Total Reporting Units", "% Of Average", "Non Reported Units", 
+                    "", 
+                    "Total Reporting Units", "% Of Average", "Non Reported Units", 
+                    "", 
+                    "Total Reporting Units", "% Of Average", "Non Reported Units"
+                ]
+                
+                for col_num, col_name in enumerate(display_headers):
+                    if col_name: # Don't format the blank columns
+                        worksheet.write(2, col_num, col_name, sub_fmt)
+
+                # Set column widths for better visibility
+                worksheet.set_column('A:A', 25)
+                worksheet.set_column('B:L', 15)
+                worksheet.set_column('E:E', 3) # Blank 1
+                worksheet.set_column('I:I', 3) # Blank 2
+
+            # Dynamic File Name
+            final_file_name = f"{formatted_date} IHIP S,P & L Status Report.xlsx"
 
             st.download_button(
-                label="📥 Download Consolidated Report",
+                label=f"📥 Download {final_file_name}",
                 data=output.getvalue(),
-                file_name="Consolidated_Summary.xlsx",
+                file_name=final_file_name,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
     else:
