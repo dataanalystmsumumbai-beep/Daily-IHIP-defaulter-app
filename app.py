@@ -165,20 +165,13 @@ with tab1:
         st.download_button("Download Output 2", generate_output2_excel(out2, report_datetime), f"IHIP Defaulter List of S, P & L Form of _{report_datetime}.xlsx")
 
 # ----------------------------------------------------------------
-# TAB 2: CONSOLIDATED REPORTING SUMMARY (NO-STYLE ENGINE)
+# TAB 2: CONSOLIDATED REPORTING SUMMARY (CALAMINE ENGINE FIX)
 # ----------------------------------------------------------------
 import pandas as pd
 import streamlit as st
 from io import BytesIO
-import openpyxl
-from openpyxl.styles import fills
 
-# This is the "Nuclear Fix" - it replaces the broken fill logic in openpyxl 
-# with a dummy function so it stops crashing on your IHIP files.
-def patch_openpyxl():
-    from openpyxl.styles import fills
-    if not hasattr(fills, 'Fill'):
-        fills.Fill = object
+# Note: Ensure you have installed python-calamine (pip install python-calamine)
 
 with tab2:
     st.title("Reporting Summary Status")
@@ -193,33 +186,27 @@ with tab2:
             return pd.DataFrame()
         try:
             file.seek(0)
-            # Opening with read_only and data_only to avoid style parsing
-            wb = openpyxl.load_workbook(file, read_only=True, data_only=True)
-            sheet = wb.active
-            
-            # Extracting values row by row manually (fastest safe way)
-            rows = list(sheet.iter_rows(values_only=True))
-            if not rows:
-                return pd.DataFrame()
-                
-            # Create DF and set first row as header
-            df = pd.DataFrame(rows[1:], columns=rows[0])
-            wb.close()
+            # Using 'calamine' engine which ignores all styles/formatting errors
+            df = pd.read_excel(file, engine="calamine")
             return df
         except Exception as e:
-            # If still fails, show the exact reason but continue
-            st.error(f"Read error: {str(e)}")
-            return pd.DataFrame()
+            # Last resort if calamine is not installed or fails
+            try:
+                file.seek(0)
+                return pd.read_excel(file)
+            except Exception as e2:
+                st.error(f"Critical error reading {file.name}: {str(e2)}")
+                return pd.DataFrame()
 
     def process_summary_file(file, form_name):
         df = safe_read_excel(file)
         if df.empty:
             return pd.DataFrame()
 
-        # Clean column names
+        # Clean column names by removing extra spaces and newlines
         df.columns = [" ".join(str(c).split()).strip() for c in df.columns]
 
-        # Mapping logic
+        # Mapping columns based on your requirements
         # 1. ward, 2. Total Reporting Units, 3. % Of Average Reporting Units, 4. Non Reported Units
         ward_col = next((c for c in df.columns if "administrative" in c.lower() or "ward" in c.lower()), None)
         total_col = next((c for c in df.columns if "total reporting units" in c.lower()), None)
@@ -227,9 +214,10 @@ with tab2:
         non_rep_col = next((c for c in df.columns if "never reported" in c.lower() or "non reported" in c.lower()), None)
 
         if not (ward_col and total_col and perc_col and non_rep_col):
-            st.warning(f"Columns missing in {form_name}")
+            st.warning(f"Required columns missing in {form_name}. Check headers.")
             return pd.DataFrame()
 
+        # Reorganize and rename
         df = df[[ward_col, total_col, perc_col, non_rep_col]].copy()
         df.rename(columns={
             ward_col: "ward",
@@ -238,12 +226,14 @@ with tab2:
             non_rep_col: "Non Reported Units"
         }, inplace=True)
 
-        # Convert numbers
+        # Basic cleaning
+        df["ward"] = df["ward"].astype(str).str.strip()
+        df = df[df["ward"].str.lower() != "nan"]
+        
         for col in ["Total Reporting Units", "% Of Average Reporting Units", "Non Reported Units"]:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-        df["ward"] = df["ward"].astype(str).str.strip()
-        return df[df["ward"].str.lower() != "nan"]
+        return df
 
     if sum_s and sum_p and sum_l:
         ds = process_summary_file(sum_s, "S-Form")
@@ -251,11 +241,11 @@ with tab2:
         dl = process_summary_file(sum_l, "L-Form")
 
         if not ds.empty and not dp.empty and not dl.empty:
-            # Merging Logic
+            # Merging
             m1 = pd.merge(ds, dp, on="ward", how="outer", suffixes=("_S", "_P"))
             master = pd.merge(m1, dl, on="ward", how="outer")
             
-            # Suffix for L-Form
+            # Suffix for L-Form manually
             master.rename(columns={
                 "Total Reporting Units": "Total Reporting Units_L",
                 "% Of Average Reporting Units": "% Of Average Reporting Units_L",
@@ -264,16 +254,20 @@ with tab2:
 
             master = master.fillna(0).sort_values("ward")
             
-            # Export Columns
+            # Organize columns for final view
             final_order = ["ward"]
             for sfx in ["_S", "_P", "_L"]:
-                final_order.extend([f"Total Reporting Units{sfx}", f"% Of Average Reporting Units{sfx}", f"Non Reported Units{sfx}"])
+                final_order.extend([
+                    f"Total Reporting Units{sfx}", 
+                    f"% Of Average Reporting Units{sfx}", 
+                    f"Non Reported Units{sfx}"
+                ])
             
             export_df = master[final_order]
-            st.subheader("Reporting Summary Preview")
+            st.subheader("Consolidated Summary Preview")
             st.dataframe(export_df, use_container_width=True)
 
-            # Generate Download
+            # Export to Excel
             output = BytesIO()
             with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
                 export_df.to_excel(writer, index=False, sheet_name="Summary")
@@ -284,3 +278,5 @@ with tab2:
                 file_name="Consolidated_Summary.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+    else:
+        st.info("Please upload S, P, and L form summary files to proceed.")
