@@ -3,6 +3,7 @@ import pandas as pd
 from io import BytesIO
 import datetime
 import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 st.set_page_config(page_title="IHIP Defaulter & Summary Tool", layout="wide")
 
@@ -10,13 +11,8 @@ st.set_page_config(page_title="IHIP Defaulter & Summary Tool", layout="wide")
 tab1, tab2 = st.tabs(["Defaulter Analysis", "Reporting Summary"])
 
 # ----------------------------------------------------------------
-# TAB 1: DAILY DEFAULTER ANALYSIS
+# TAB 1: DAILY DEFAULTER ANALYSIS (.XLSM OUTPUT)
 # ----------------------------------------------------------------
-import pandas as pd
-import streamlit as st
-from io import BytesIO
-import datetime
-
 with tab1:
     st.title("Daily IHIP Defaulter Analysis")
     
@@ -32,78 +28,95 @@ with tab1:
     
     # ---------------- DATE & TIME INPUTS ----------------
     icol1, icol2 = st.columns([2, 3])
-    
-    # Date Input
     report_date_obj = icol1.date_input("Select Report Date", datetime.date.today(), key="date_input_def")
     formatted_date = report_date_obj.strftime("%d-%m-%Y")
     day_name = report_date_obj.strftime("%A")
     
-    # Typable Time Inputs
     icol2.write("Enter Report Time")
     t_c1, t_c2, t_c3 = icol2.columns(3)
     hr_val = t_c1.text_input("HH", value="04", key="hr_t1")
     mn_val = t_c2.text_input("MM", value="05", key="mn_t1")
     am_pm = t_c3.selectbox("AM/PM", ["am", "pm"], index=1, key="ap_t1")
     
-    # Formatting Time
     formatted_time = f"{hr_val.zfill(2)}.{mn_val.zfill(2)}{am_pm}"
     report_datetime = f"{day_name} {formatted_date} till {formatted_time}"
     
-    # ---------------- EXCEL FORMATTER FUNCTION ----------------
-    def generate_formatted_excel(df, title, subtitle):
+    # ---------------- OPENPYXL .XLSM GENERATOR ----------------
+    def generate_formatted_xlsm(df, title, subtitle):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Defaulter List"
+        
+        # Define Styles
+        font_title = Font(name="Calibri", size=13, bold=True)
+        font_sub = Font(name="Calibri", size=11, bold=True)
+        font_header = Font(name="Calibri", size=11, bold=True)
+        font_cell = Font(name="Calibri", size=11)
+        
+        fill_title = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
+        fill_sub = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+        fill_header = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
+        
+        thin_side = Side(style='thin', color='A6A6A6')
+        border_all = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+        align_center = Alignment(horizontal='center', vertical='center')
+        
+        num_cols = len(df.columns)
+        
+        # Write Title & Subtitle Row
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=num_cols)
+        ws.cell(row=1, column=1, value=title).font = font_title
+        ws.cell(row=1, column=1).fill = fill_title
+        ws.cell(row=1, column=1).alignment = align_center
+        ws.cell(row=1, column=1).border = border_all
+        
+        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=num_cols)
+        ws.cell(row=2, column=1, value=subtitle).font = font_sub
+        ws.cell(row=2, column=1).fill = fill_sub
+        ws.cell(row=2, column=1).alignment = align_center
+        ws.cell(row=2, column=1).border = border_all
+        
+        # Write Column Headers
+        for col_idx, col_name in enumerate(df.columns, 1):
+            cell = ws.cell(row=3, column=col_idx, value=str(col_name))
+            cell.font = font_header
+            cell.fill = fill_header
+            cell.alignment = align_center
+            cell.border = border_all
+            
+        # Write Data Matrix
+        for row_idx, row_values in enumerate(df.values, 4):
+            for col_idx, val in enumerate(row_values, 1):
+                clean_val = "" if pd.isna(val) else val
+                cell = ws.cell(row=row_idx, column=col_idx, value=clean_val)
+                cell.font = font_cell
+                cell.alignment = align_center
+                cell.border = border_all
+                
+        # Set Intentional Grid Layout Column Widths
+        ws.column_dimensions['A'].width = 8
+        ws.column_dimensions['B'].width = 15
+        ws.column_dimensions['C'].width = 40
+        for col_idx in range(4, num_cols + 1):
+            col_letter = openpyxl.utils.get_column_letter(col_idx)
+            ws.column_dimensions[col_letter].width = 20
+            
         buf = BytesIO()
-        with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False, startrow=2, sheet_name='Sheet1')
-            
-            workbook = writer.book
-            worksheet = writer.sheets['Sheet1']
-            
-            # Formats
-            fmt_title = workbook.add_format({'bold':True, 'align':'center', 'valign':'vcenter', 'bg_color':'#E7E6E6', 'border':1})
-            fmt_sub = workbook.add_format({'bold':True, 'align':'center', 'valign':'vcenter', 'bg_color':'#F2F2F2', 'border':1})
-            fmt_header = workbook.add_format({'bold':True, 'align':'center', 'valign':'vcenter', 'border':1, 'bg_color':'#D9EAD3'})
-            fmt_cell = workbook.add_format({'align':'center', 'valign':'vcenter', 'border':1})
-            
-            num_cols = len(df.columns)
-            
-            # Apply Titles
-            worksheet.merge_range(0, 0, 0, num_cols-1, title, fmt_title)
-            worksheet.merge_range(1, 0, 1, num_cols-1, subtitle, fmt_sub)
-            
-            # Apply Header Formatting
-            for col_num, value in enumerate(df.columns.values):
-                worksheet.write(2, col_num, value, fmt_header)
-            
-            # Apply Borders and Alignment
-            for row_num in range(len(df)):
-                for col_num in range(num_cols):
-                    val = df.iloc[row_num, col_num]
-                    if pd.isna(val):
-                        worksheet.write(row_num + 3, col_num, "", fmt_cell)
-                    else:
-                        worksheet.write(row_num + 3, col_num, val, fmt_cell)
-            
-            # Column Widths
-            worksheet.set_column(0, 0, 8)   # Sr No
-            worksheet.set_column(1, 1, 15)  # Ward
-            worksheet.set_column(2, 2, 40)  # Facility Name
-            worksheet.set_column(3, num_cols-1, 20)
-            
+        wb.save(buf)
         return buf.getvalue()
 
-    # ---------------- DATA PROCESSING ----------------
+    # Data Processing Logic
     def process_file(file, form):
         try:
-            df = pd.read_excel(file, engine='calamine')
+            df = pd.read_excel(file)
             if "facility name" not in str(df.columns).lower():
                 for i in range(len(df)):
                     if "facility name" in str(df.iloc[i]).lower():
                         df.columns = df.iloc[i]
                         df = df[i+1:].reset_index(drop=True)
                         break
-            
             df.columns = [str(c).strip() for c in df.columns]
-            def find_col(k): return next((c for c in df.columns if k in str(c).lower()), None)
+            find_col = lambda k: next((c for c in df.columns if k in str(c).lower()), None)
             
             name = find_col("facility name")
             subtype = find_col("facility sub-type")
@@ -134,7 +147,6 @@ with tab1:
             return out
         except: return pd.DataFrame()
 
-    # ---------------- MAIN LOGIC ----------------
     dfs = []
     if s_file: dfs.append(process_file(s_file, "S FORM"))
     if p_file: dfs.append(process_file(p_file, "P FORM"))
@@ -146,17 +158,16 @@ with tab1:
         final_df["ward_sort"] = final_df["WARD"].apply(lambda x: "ZZZ" if x.strip().lower() == "not mentioned" else x)
         final_df = final_df.sort_values(["ward_sort", "Facility Name"]).drop(columns=["ward_sort"])
         
-        # --- Output 1 ---
+        # Output 1
         out1 = final_df.copy()
         out1.insert(0, "Sr No", range(1, len(out1)+1))
         st.subheader("Output 1")
         st.dataframe(out1, use_container_width=True)
+        
+        xlsm1 = generate_formatted_xlsm(out1, "IHIP Defaulter", formatted_date)
+        st.download_button("Download Output 1 (.xlsm)", xlsm1, f"{formatted_date}_IHIP_Defaulter_List.xlsm", mime="application/vnd.ms-excel.sheet.macroEnabled.12")
 
-        xlsx1 = generate_formatted_excel(out1, "IHIP Defaulter", formatted_date)
-        # Updated Filename for Output 1
-        st.download_button("Download Output 1", xlsx1, f"{formatted_date}_IHIP Defaulter List of S, P & L Form.xlsx")
-
-        # --- Output 2 ---
+        # Output 2
         if staff_input:
             merged = final_df.copy()
             merged["key"] = merged["Facility Name"].astype(str).str.strip().str.lower()
@@ -196,19 +207,13 @@ with tab1:
             st.subheader("Output 2")
             st.dataframe(out2, use_container_width=True)
             
-            xlsx2 = generate_formatted_excel(out2, "IHIP Defaulter List of S, P & L Form", report_datetime)
-            # Updated Filename for Output 2
-            st.download_button("Download Output 2", xlsx2, f"IHIP Defaulter List of S, P & L Form of _{report_datetime}.xlsx")
+            xlsm2 = generate_formatted_xlsm(out2, "IHIP Defaulter List of S, P & L Form", report_datetime)
+            st.download_button("Download Output 2 (.xlsm)", xlsm2, f"IHIP_Defaulter_List_{formatted_date}.xlsm", mime="application/vnd.ms-excel.sheet.macroEnabled.12")
 
 
 # ----------------------------------------------------------------
-# TAB 2: CONSOLIDATED REPORTING SUMMARY (STRICT ERROR FIX)
+# TAB 2: CONSOLIDATED REPORTING SUMMARY (.CSV FLAT FORMAT)
 # ----------------------------------------------------------------
-import pandas as pd
-import streamlit as st
-from io import BytesIO
-import datetime
-
 with tab2:
     st.title("Reporting Summary Status")
 
@@ -216,15 +221,15 @@ with tab2:
     formatted_date = report_date.strftime("%d-%m-%Y")
 
     sc1, sc2, sc3 = st.columns(3)
-    sum_s = sc1.file_uploader("S-Form Summary", type=["csv"], key="s_sum")
-    sum_p = sc2.file_uploader("P-Form Summary", type=["csv"], key="p_sum")
-    sum_l = sc3.file_uploader("L-Form Summary", type=["csv"], key="l_sum")
+    sum_s = sc1.file_uploader("S-Form Summary", type=["xlsx"], key="s_sum")
+    sum_p = sc2.file_uploader("P-Form Summary", type=["xlsx"], key="p_sum")
+    sum_l = sc3.file_uploader("L-Form Summary", type=["xlsx"], key="l_sum")
 
     def safe_read_excel(file):
         if file is None: return pd.DataFrame()
         try:
             file.seek(0)
-            df = pd.read_excel(file, engine="calamine")
+            df = pd.read_excel(file)
             if df.empty: return df
             if all("Unnamed" in str(c) for c in df.columns[:2]):
                 df.columns = df.iloc[0]
@@ -239,11 +244,7 @@ with tab2:
         if df.empty: return pd.DataFrame()
 
         raw_cols = {c: str(c).replace(" ", "").lower() for c in df.columns}
-        def find_fuzzy_col(keywords):
-            for original_name, clean_name in raw_cols.items():
-                if any(k in clean_name for k in keywords):
-                    return original_name
-            return None
+        find_fuzzy_col = lambda keywords: next((orig for orig, cln in raw_cols.items() if any(k in cln for k in keywords)), None)
 
         ward_col = find_fuzzy_col(["admin", "ward"])
         total_col = find_fuzzy_col(["totalreporting"])
@@ -295,7 +296,7 @@ with tab2:
             main_df = export_df[~is_not_mapped].copy()
             not_mapped_df = export_df[is_not_mapped].copy()
 
-            # --- Proper Average/Sum Calculation ---
+            # Average/Sum Calculation
             sum_data = {"ward": "Total"}
             for col in final_order:
                 if col == "ward" or "Blank" in col:
@@ -307,7 +308,6 @@ with tab2:
                     sum_data[col] = int(main_df[col].sum())
             
             total_df = pd.DataFrame([sum_data])
-            # Resetting 'ward' for total specifically
             total_df.at[0, "ward"] = "Total"
             
             final_display_df = pd.concat([main_df, total_df, not_mapped_df], ignore_index=True)
@@ -315,50 +315,9 @@ with tab2:
             st.subheader("Consolidated Summary Preview")
             st.dataframe(final_display_df, use_container_width=True)
 
-            # --- Secure Excel Export ---
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-                # Writing empty to start to avoid formatting conflicts
-                final_display_df.to_excel(writer, index=False, sheet_name="Summary", startrow=3, header=False)
-                workbook, worksheet = writer.book, writer.sheets["Summary"]
-                
-                # Formats
-                title_fmt = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14, 'border': 1})
-                header_fmt = workbook.add_format({'bold': True, 'align': 'center', 'bg_color': '#D9EAD3', 'border': 1})
-                sub_fmt = workbook.add_format({'bold': True, 'align': 'center', 'border': 1, 'text_wrap': True, 'bg_color': '#F3F3F3'})
-                data_fmt = workbook.add_format({'border': 1, 'align': 'center'})
-                total_row_fmt = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'bg_color': '#EFEFEF'})
-                
-                # Headers
-                worksheet.merge_range('A1:L1', f"{formatted_date} IHIP S,P & L Reporting Status", title_fmt)
-                worksheet.merge_range('B2:D2', 'S-Form Status', header_fmt)
-                worksheet.merge_range('F2:H2', 'P-Form Status', header_fmt)
-                worksheet.merge_range('J2:L2', 'L-Form Status', header_fmt)
+            # --- Flat CSV Transformation ---
+            csv_data = final_display_df.to_csv(index=False).encode('utf-8')
 
-                headers = ["Ward", "Total Reporting Units", "% Of Average", "Non Reported Units", "", 
-                           "Total Reporting Units", "% Of Average", "Non Reported Units", "", 
-                           "Total Reporting Units", "% Of Average", "Non Reported Units"]
-                for i, h in enumerate(headers): worksheet.write(2, i, h, sub_fmt)
-
-                # --- Error-Safe Write Loop ---
-                for row_num in range(len(final_display_df)):
-                    row_data = final_display_df.iloc[row_num]
-                    is_total = str(row_data["ward"]).strip() == "Total"
-                    fmt = total_row_fmt if is_total else data_fmt
-                    
-                    for col_num in range(len(final_order)):
-                        val = row_data[final_order[col_num]]
-                        # Safety Check: Replace NaN with empty string
-                        if pd.isna(val):
-                            worksheet.write(row_num + 3, col_num, "", fmt)
-                        else:
-                            worksheet.write(row_num + 3, col_num, val, fmt)
-
-                worksheet.set_column('A:A', 25)
-                worksheet.set_column('B:D', 18); worksheet.set_column('E:E', 2)
-                worksheet.set_column('F:H', 18); worksheet.set_column('I:I', 2)
-                worksheet.set_column('J:L', 18)
-
-            st.download_button(f"📥 Download {formatted_date} Status Report", output.getvalue(), f"{formatted_date}_IHIP S,P & L Status Report.xlsx")
+            st.download_button(f"📥 Download {formatted_date} Summary Report (.csv)", csv_data, f"{formatted_date}_IHIP_SPL_Status_Report.csv", mime="text/csv")
     else:
-        st.info("Upload S, P, and L files to begin.")
+        st.info("Upload S, P, and L summary files to begin.")
