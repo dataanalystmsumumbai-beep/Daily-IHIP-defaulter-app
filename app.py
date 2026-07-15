@@ -12,10 +12,6 @@ tab1, tab2 = st.tabs(["Defaulter Analysis", "Reporting Summary"])
 # ----------------------------------------------------------------
 # TAB 1: DAILY DEFAULTER ANALYSIS
 # ----------------------------------------------------------------
-import pandas as pd
-import streamlit as st
-from io import BytesIO
-import datetime
 
 with tab1:
     st.title("Daily IHIP Defaulter Analysis")
@@ -202,12 +198,8 @@ with tab1:
 
 
 # ----------------------------------------------------------------
-# TAB 2: CONSOLIDATED REPORTING SUMMARY (STRICT ERROR FIX)
+# TAB 2: CONSOLIDATED REPORTING SUMMARY (CSV SUPPORT ADDED)
 # ----------------------------------------------------------------
-import pandas as pd
-import streamlit as st
-from io import BytesIO
-import datetime
 
 with tab2:
     st.title("Reporting Summary Status")
@@ -216,15 +208,21 @@ with tab2:
     formatted_date = report_date.strftime("%d-%m-%Y")
 
     sc1, sc2, sc3 = st.columns(3)
-    sum_s = sc1.file_uploader("S-Form Summary", type=["xlsx"], key="s_sum")
-    sum_p = sc2.file_uploader("P-Form Summary", type=["xlsx"], key="p_sum")
-    sum_l = sc3.file_uploader("L-Form Summary", type=["xlsx"], key="l_sum")
+    # Added CSV support in the file uploaders
+    sum_s = sc1.file_uploader("S-Form Summary", type=["xlsx", "csv"], key="s_sum")
+    sum_p = sc2.file_uploader("P-Form Summary", type=["xlsx", "csv"], key="p_sum")
+    sum_l = sc3.file_uploader("L-Form Summary", type=["xlsx", "csv"], key="l_sum")
 
-    def safe_read_excel(file):
+    # Replaced safe_read_excel with safe_read_file to handle CSV
+    def safe_read_file(file):
         if file is None: return pd.DataFrame()
         try:
             file.seek(0)
-            df = pd.read_excel(file, engine="calamine")
+            if file.name.endswith('.csv'):
+                df = pd.read_csv(file)
+            else:
+                df = pd.read_excel(file, engine="calamine")
+                
             if df.empty: return df
             if all("Unnamed" in str(c) for c in df.columns[:2]):
                 df.columns = df.iloc[0]
@@ -235,7 +233,7 @@ with tab2:
             return pd.DataFrame()
 
     def process_summary_file(file, form_name):
-        df = safe_read_excel(file)
+        df = safe_read_file(file) # Calling the new function
         if df.empty: return pd.DataFrame()
 
         raw_cols = {c: str(c).replace(" ", "").lower() for c in df.columns}
@@ -361,4 +359,4 @@ with tab2:
 
             st.download_button(f"📥 Download {formatted_date} Status Report", output.getvalue(), f"{formatted_date}_IHIP S,P & L Status Report.xlsx")
     else:
-        st.info("Upload S, P, and L files to begin.")
+        st.info("Upload S, P, and L files (Excel or CSV) to begin.")
