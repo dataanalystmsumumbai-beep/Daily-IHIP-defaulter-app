@@ -216,9 +216,9 @@ with tab2:
     formatted_date = report_date.strftime("%d-%m-%Y")
 
     sc1, sc2, sc3 = st.columns(3)
-    sum_s = sc1.file_uploader("S-Form Summary", type=["xlsx"], key="s_sum")
-    sum_p = sc2.file_uploader("P-Form Summary", type=["xlsx"], key="p_sum")
-    sum_l = sc3.file_uploader("L-Form Summary", type=["xlsx"], key="l_sum")
+    sum_s = sc1.file_uploader("S-Form Summary", type=["csv"], key="s_sum")
+    sum_p = sc2.file_uploader("P-Form Summary", type=["csv"], key="p_sum")
+    sum_l = sc3.file_uploader("L-Form Summary", type=["csv"], key="l_sum")
 
     def safe_read_excel(file):
         if file is None: return pd.DataFrame()
